@@ -62,3 +62,18 @@ class TimerRead(TimerBase):
     model_config = ConfigDict(from_attributes=True)
     id: int
     activities: list[ActivityRead] = []
+
+
+class SettingsRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    dark_mode: bool
+    reverse_countdown: bool
+    dummy_data: bool
+    static_mode: bool
+
+
+class SettingsUpdate(BaseModel):
+    dark_mode: bool | None = None
+    reverse_countdown: bool | None = None
+    dummy_data: bool | None = None
+    static_mode: bool | None = None

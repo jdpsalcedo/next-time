@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { api, formatDuration } from '../api.js';
 import Modal from '../components/Modal.jsx';
+import { useSettings } from '../settings.jsx';
 
 export default function Timers() {
   const [timers, setTimers] = useState([]);
@@ -180,46 +181,49 @@ export default function Timers() {
 }
 
 function TimerRunner({ timer, onClose }) {
+  const { settings } = useSettings();
+  const reverse = settings.reverse_countdown;
   const [index, setIndex] = useState(0);
-  const [remaining, setRemaining] = useState(timer.activities[0]?.duration_seconds ?? 0);
+  const [elapsed, setElapsed] = useState(0);
   const [isPlaying, setIsPlaying] = useState(true);
   const tickRef = useRef(null);
 
+  const current = timer.activities[index];
+  const next = timer.activities[index + 1];
+  const duration = current?.duration_seconds ?? 0;
+  const done = !current || (index === timer.activities.length - 1 && elapsed >= duration);
+
   useEffect(() => {
-    if (!isPlaying) return;
-    if (remaining <= 0) {
+    if (!isPlaying || done) return;
+    if (elapsed >= duration) {
       if (index < timer.activities.length - 1) {
-        const next = index + 1;
-        setIndex(next);
-        setRemaining(timer.activities[next].duration_seconds);
+        setIndex((i) => i + 1);
+        setElapsed(0);
       } else {
         setIsPlaying(false);
       }
       return;
     }
-    tickRef.current = setTimeout(() => setRemaining((r) => r - 1), 1000);
+    tickRef.current = setTimeout(() => setElapsed((e) => e + 1), 1000);
     return () => clearTimeout(tickRef.current);
-  }, [isPlaying, remaining, index, timer.activities]);
-
-  const current = timer.activities[index];
-  const next = timer.activities[index + 1];
-  const done = !current || (index === timer.activities.length - 1 && remaining <= 0);
+  }, [isPlaying, elapsed, index, duration, done, timer.activities.length]);
 
   function reset() {
     setIndex(0);
-    setRemaining(timer.activities[0]?.duration_seconds ?? 0);
+    setElapsed(0);
     setIsPlaying(true);
   }
 
   function skip() {
     if (index < timer.activities.length - 1) {
-      const ni = index + 1;
-      setIndex(ni);
-      setRemaining(timer.activities[ni].duration_seconds);
+      setIndex(index + 1);
+      setElapsed(0);
     } else {
-      setRemaining(0);
+      setElapsed(duration);
     }
   }
+
+  const displaySeconds = reverse ? elapsed : Math.max(0, duration - elapsed);
 
   return (
     <Modal title={timer.title} onClose={onClose}>
@@ -227,13 +231,14 @@ function TimerRunner({ timer, onClose }) {
         {done ? (
           <>
             <div className="now">All done</div>
-            <div className="clock">0:00</div>
+            <div className="clock">{formatDuration(reverse ? duration : 0)}</div>
           </>
         ) : (
           <>
             <div className="now">{current.title}</div>
-            <div className="clock">{formatDuration(remaining)}</div>
+            <div className="clock">{formatDuration(displaySeconds)}</div>
             <div className="next">
+              {reverse ? `of ${formatDuration(duration)} · ` : ''}
               {next ? `Next: ${next.title} (${formatDuration(next.duration_seconds)})` : 'Last activity'}
             </div>
           </>

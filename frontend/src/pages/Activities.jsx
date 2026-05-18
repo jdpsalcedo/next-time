@@ -1,9 +1,18 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { api, formatDuration } from '../api.js';
 import TagChip from '../components/TagChip.jsx';
 import Modal from '../components/Modal.jsx';
 
 const EMPTY_FORM = { title: '', description: '', minutes: 0, seconds: 0, tag_ids: [] };
+
+const SORT_OPTIONS = [
+  { value: 'alpha-asc', label: 'A to Z' },
+  { value: 'alpha-desc', label: 'Z to A' },
+  { value: 'newest', label: 'Newest' },
+  { value: 'oldest', label: 'Oldest' },
+  { value: 'dur-asc', label: 'Shortest' },
+  { value: 'dur-desc', label: 'Longest' },
+];
 
 export default function Activities() {
   const [activities, setActivities] = useState([]);
@@ -13,6 +22,12 @@ export default function Activities() {
   const [newTag, setNewTag] = useState({ name: '', color: '#38bdf8' });
   const [error, setError] = useState('');
 
+  const [filtersOpen, setFiltersOpen] = useState(true);
+  const [tagsOpen, setTagsOpen] = useState(true);
+  const [search, setSearch] = useState('');
+  const [sortBy, setSortBy] = useState('alpha-asc');
+  const [selectedTagIds, setSelectedTagIds] = useState([]);
+
   async function refresh() {
     const [a, g] = await Promise.all([api.listActivities(), api.listTags()]);
     setActivities(a);
@@ -20,6 +35,69 @@ export default function Activities() {
   }
 
   useEffect(() => { refresh().catch((e) => setError(e.message)); }, []);
+
+  useEffect(() => {
+    setSelectedTagIds((prev) => prev.filter((id) => tags.some((t) => t.id === id)));
+  }, [tags]);
+
+  const view = useMemo(() => {
+    let list = activities;
+
+    const q = search.trim().toLowerCase();
+    if (q) {
+      list = list.filter(
+        (a) =>
+          a.title.toLowerCase().includes(q) ||
+          a.tags.some((t) => t.name.toLowerCase().includes(q))
+      );
+    }
+
+    if (selectedTagIds.length > 0) {
+      list = list.filter((a) => a.tags.some((t) => selectedTagIds.includes(t.id)));
+    }
+
+    const sorted = [...list];
+    switch (sortBy) {
+      case 'alpha-asc':
+        sorted.sort((a, b) => a.title.localeCompare(b.title));
+        break;
+      case 'alpha-desc':
+        sorted.sort((a, b) => b.title.localeCompare(a.title));
+        break;
+      case 'newest':
+        sorted.sort((a, b) => b.id - a.id);
+        break;
+      case 'oldest':
+        sorted.sort((a, b) => a.id - b.id);
+        break;
+      case 'dur-asc':
+        sorted.sort((a, b) => a.duration_seconds - b.duration_seconds);
+        break;
+      case 'dur-desc':
+        sorted.sort((a, b) => b.duration_seconds - a.duration_seconds);
+        break;
+      default:
+        break;
+    }
+
+    const isAlpha = sortBy === 'alpha-asc' || sortBy === 'alpha-desc';
+    if (isAlpha) {
+      const groups = new Map();
+      for (const a of sorted) {
+        const first = (a.title.trim()[0] || '#').toUpperCase();
+        const key = /[A-Z]/.test(first) ? first : '#';
+        if (!groups.has(key)) groups.set(key, []);
+        groups.get(key).push(a);
+      }
+      return { grouped: true, groups: [...groups.entries()] };
+    }
+    return { grouped: false, items: sorted };
+  }, [activities, search, sortBy, selectedTagIds]);
+
+  const filtersActive = search.trim() !== '' || selectedTagIds.length > 0;
+  const totalShown = view.grouped
+    ? view.groups.reduce((acc, [, items]) => acc + items.length, 0)
+    : view.items.length;
 
   function openCreate() {
     setEditing({ mode: 'create', form: { ...EMPTY_FORM } });
@@ -97,11 +175,26 @@ export default function Activities() {
     });
   }
 
+  function toggleFilterTag(id) {
+    setSelectedTagIds((prev) =>
+      prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]
+    );
+  }
+
   return (
     <div>
       <div className="section-header">
         <h1>Activities</h1>
-        <div style={{ display: 'flex', gap: 8 }}>
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+          <button
+            className={`icon-btn ${filtersActive ? 'has-dot' : ''}`}
+            aria-label={filtersOpen ? 'Hide filters' : 'Show filters'}
+            aria-pressed={filtersOpen}
+            onClick={() => setFiltersOpen((v) => !v)}
+            title={filtersOpen ? 'Hide filters' : 'Show filters'}
+          >
+            <FilterIcon crossed={!filtersOpen} />
+          </button>
           <button className="btn btn-ghost" onClick={() => setTagModal(true)}>Manage tags</button>
           <button className="btn" onClick={openCreate}>New activity</button>
         </div>
@@ -109,31 +202,83 @@ export default function Activities() {
 
       {error && <div className="card" style={{ borderColor: 'var(--danger)', marginBottom: 12 }}>{error}</div>}
 
+      {filtersOpen && (
+        <div className="card filter-card">
+          <div className="filter-top">
+            <input
+              className="input"
+              placeholder="Search activities by name or tag..."
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+            />
+            <select
+              className="input"
+              value={sortBy}
+              onChange={(e) => setSortBy(e.target.value)}
+              aria-label="Sort"
+            >
+              {SORT_OPTIONS.map((o) => (
+                <option key={o.value} value={o.value}>{o.label}</option>
+              ))}
+            </select>
+          </div>
+
+          {tags.length > 0 && (
+            <div className="filter-tags">
+              <div className="filter-tags-head">
+                <button
+                  className="collapse-btn"
+                  onClick={() => setTagsOpen((v) => !v)}
+                  aria-expanded={tagsOpen}
+                >
+                  <span style={{ fontWeight: 600 }}>Tags</span>
+                  <span className="chevron" aria-hidden>{tagsOpen ? '⌄' : '›'}</span>
+                </button>
+                {selectedTagIds.length > 0 && (
+                  <button className="btn btn-ghost btn-sm" onClick={() => setSelectedTagIds([])}>
+                    Clear
+                  </button>
+                )}
+              </div>
+              {tagsOpen && (
+                <div className="tag-row" style={{ marginTop: 10 }}>
+                  {tags.map((t) => (
+                    <TagChip
+                      key={t.id}
+                      tag={t}
+                      selectable
+                      selected={selectedTagIds.includes(t.id)}
+                      onClick={() => toggleFilterTag(t.id)}
+                    />
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+
       {activities.length === 0 ? (
         <div className="card empty">No activities yet. Create one to get started.</div>
-      ) : (
+      ) : totalShown === 0 ? (
+        <div className="card empty">No activities match your filters.</div>
+      ) : view.grouped ? (
         <div className="list">
-          {activities.map((a) => (
-            <div key={a.id} className="card">
-              <div className="row">
-                <div className="row-main">
-                  <div style={{ fontWeight: 600 }}>{a.title}</div>
-                  {a.description && <div className="muted">{a.description}</div>}
-                  <div className="muted" style={{ marginTop: 4 }}>
-                    {formatDuration(a.duration_seconds)}
-                  </div>
-                  {a.tags.length > 0 && (
-                    <div className="tag-row" style={{ marginTop: 8 }}>
-                      {a.tags.map((t) => <TagChip key={t.id} tag={t} />)}
-                    </div>
-                  )}
-                </div>
-                <div style={{ display: 'flex', gap: 6 }}>
-                  <button className="btn btn-ghost btn-sm" onClick={() => openEdit(a)}>Edit</button>
-                  <button className="btn btn-danger btn-sm" onClick={() => removeActivity(a.id)}>Delete</button>
-                </div>
+          {view.groups.map(([letter, items]) => (
+            <div key={letter} className="letter-group">
+              <div className="letter-header">{letter}</div>
+              <div className="list">
+                {items.map((a) => (
+                  <ActivityCard key={a.id} activity={a} onEdit={openEdit} onDelete={removeActivity} />
+                ))}
               </div>
             </div>
+          ))}
+        </div>
+      ) : (
+        <div className="list">
+          {view.items.map((a) => (
+            <ActivityCard key={a.id} activity={a} onEdit={openEdit} onDelete={removeActivity} />
           ))}
         </div>
       )}
@@ -255,5 +400,40 @@ export default function Activities() {
         </Modal>
       )}
     </div>
+  );
+}
+
+function ActivityCard({ activity, onEdit, onDelete }) {
+  return (
+    <div className="card">
+      <div className="row">
+        <div className="row-main">
+          <div style={{ fontWeight: 600 }}>{activity.title}</div>
+          {activity.description && <div className="muted">{activity.description}</div>}
+          <div className="muted" style={{ marginTop: 4 }}>{formatDuration(activity.duration_seconds)}</div>
+          {activity.tags.length > 0 && (
+            <div className="tag-row" style={{ marginTop: 8 }}>
+              {activity.tags.map((t) => <TagChip key={t.id} tag={t} />)}
+            </div>
+          )}
+        </div>
+        <div style={{ display: 'flex', gap: 6 }}>
+          <button className="btn btn-ghost btn-sm" onClick={() => onEdit(activity)}>Edit</button>
+          <button className="btn btn-danger btn-sm" onClick={() => onDelete(activity.id)}>Delete</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function FilterIcon({ crossed }) {
+  return (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+         strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+      <line x1="4" y1="6" x2="20" y2="6" />
+      <line x1="4" y1="12" x2="14" y2="12" />
+      <line x1="4" y1="18" x2="8" y2="18" />
+      {crossed && <line x1="3" y1="21" x2="21" y2="3" />}
+    </svg>
   );
 }

@@ -52,6 +52,17 @@ frontend/
     styles.css         Theme + responsive layout (breakpoint at 640px)
 ```
 
+## Settings
+
+Four toggles on the Settings page, all persisted in SQLite and mirrored to `localStorage` (so theme applies without a flash on page load):
+
+- **Dark mode** — flips a `data-theme` attribute on `<html>`; light/dark palettes defined in `styles.css`.
+- **Reverse timer countdown** — count up from 0 instead of down to 0. The TimerRunner reads this from `SettingsContext`.
+- **Dummy data** — toggling ON inserts 3 sample tags + 3 activities + 1 timer (flagged `is_seed=true`). Toggling OFF deletes only seeded rows; your own data is untouched.
+- **Static mode** — stub toggle; persisted but no behavior wired yet.
+
+Backend: `GET /api/settings`, `PATCH /api/settings`. Seeding happens server-side inside the PATCH handler when `dummy_data` flips.
+
 ## Mobile responsiveness
 
 - Top tab bar collapses to a bottom nav under 640px.

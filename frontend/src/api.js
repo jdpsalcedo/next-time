@@ -28,6 +28,9 @@ export const api = {
   updateTimer: (id, data) =>
     request(`/timers/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
   deleteTimer: (id) => request(`/timers/${id}`, { method: 'DELETE' }),
+
+  getSettings: () => request('/settings'),
+  updateSettings: (data) => request('/settings', { method: 'PATCH', body: JSON.stringify(data) }),
 };
 
 export function formatDuration(totalSeconds) {

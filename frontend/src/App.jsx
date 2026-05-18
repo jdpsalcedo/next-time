@@ -2,6 +2,7 @@ import { NavLink, Route, Routes, Navigate } from 'react-router-dom';
 import Home from './pages/Home.jsx';
 import Activities from './pages/Activities.jsx';
 import Timers from './pages/Timers.jsx';
+import Settings from './pages/Settings.jsx';
 
 export default function App() {
   return (
@@ -12,6 +13,7 @@ export default function App() {
           <NavLink to="/" end className="tab">Home</NavLink>
           <NavLink to="/activities" className="tab">Activities</NavLink>
           <NavLink to="/timers" className="tab">Timers</NavLink>
+          <NavLink to="/settings" className="tab">Settings</NavLink>
         </nav>
       </header>
       <main className="main">
@@ -19,6 +21,7 @@ export default function App() {
           <Route path="/" element={<Home />} />
           <Route path="/activities" element={<Activities />} />
           <Route path="/timers" element={<Timers />} />
+          <Route path="/settings" element={<Settings />} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
       </main>
@@ -34,6 +37,10 @@ export default function App() {
         <NavLink to="/timers" className="bottomtab">
           <span className="bticon" aria-hidden>◷</span>
           <span>Timers</span>
+        </NavLink>
+        <NavLink to="/settings" className="bottomtab">
+          <span className="bticon" aria-hidden>⚙</span>
+          <span>Settings</span>
         </NavLink>
       </nav>
     </div>

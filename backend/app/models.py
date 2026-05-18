@@ -1,4 +1,4 @@
-from sqlalchemy import Column, ForeignKey, Integer, String, Table
+from sqlalchemy import Boolean, Column, ForeignKey, Integer, String, Table
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from .database import Base
@@ -26,6 +26,7 @@ class Tag(Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     name: Mapped[str] = mapped_column(String(64), unique=True, nullable=False)
     color: Mapped[str] = mapped_column(String(16), nullable=False, default="#888888")
+    is_seed: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
 
     activities: Mapped[list["Activity"]] = relationship(
         secondary=activity_tags, back_populates="tags"
@@ -39,6 +40,7 @@ class Activity(Base):
     title: Mapped[str] = mapped_column(String(128), nullable=False)
     description: Mapped[str] = mapped_column(String(1024), nullable=False, default="")
     duration_seconds: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    is_seed: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
 
     tags: Mapped[list[Tag]] = relationship(
         secondary=activity_tags, back_populates="activities"
@@ -54,7 +56,18 @@ class Timer(Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     title: Mapped[str] = mapped_column(String(128), nullable=False)
     description: Mapped[str] = mapped_column(String(1024), nullable=False, default="")
+    is_seed: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
 
     activities: Mapped[list[Activity]] = relationship(
         secondary=timer_activities, back_populates="timers", order_by=timer_activities.c.position
     )
+
+
+class Settings(Base):
+    __tablename__ = "settings"
+
+    id: Mapped[int] = mapped_column(primary_key=True, default=1)
+    dark_mode: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    reverse_countdown: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    dummy_data: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    static_mode: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
