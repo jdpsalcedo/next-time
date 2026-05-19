@@ -59,7 +59,18 @@ service cloud.firestore {
 }
 ```
 
-## Deploy (Firebase App Hosting)
+## Deploys
+
+The repo ships two parallel deploys, both pointing at the same Firebase project (`next-time-8844f`). Sign-in and data are shared — they're just different URLs.
+
+| | Where | When | Workflow |
+|---|---|---|---|
+| Primary | Firebase App Hosting (Cloud Run) | push to `main`, paths under `frontend/**` | [.github/workflows/deploy.yml](.github/workflows/deploy.yml) |
+| Static mirror | GitHub Pages (`jdpsalcedo.github.io/next-time/`) | same | [.github/workflows/deploy-pages.yml](.github/workflows/deploy-pages.yml) |
+
+The static-mirror build sets `VITE_STATIC_MODE=true`, which renders a small **`static`** badge next to the brand on that deploy so you can tell which site you're on. Both bundles are otherwise identical and call Firestore + Auth straight from the browser.
+
+### Firebase App Hosting (Cloud Run)
 
 The app deploys to **Firebase App Hosting**. The Cloud Run container runs `node server.mjs` (a tiny static-file server defined in `frontend/server.mjs`) which serves `frontend/dist/` with SPA fallback.
 
@@ -89,6 +100,14 @@ The app deploys to **Firebase App Hosting**. The Cloud Run container runs `node 
 ### Deploys
 
 Push to `main` → `.github/workflows/deploy.yml` authenticates with the service account, installs `firebase-tools`, and runs `firebase apphosting:rollouts:create next-time --git-branch main`. App Hosting then builds (`npm install` → `npm run build`) and rolls out a new revision.
+
+### GitHub Pages (static mirror)
+
+1. Repo Settings → **Pages** → Source: **GitHub Actions**. (No need to configure a branch/folder; the workflow uploads the artifact directly.)
+2. Make sure `jdpsalcedo.github.io` is in Firebase Console → **Authentication → Settings → Authorized domains** so Google sign-in works there too.
+3. Push to `main`. The Pages workflow builds with `VITE_STATIC_MODE=true` and publishes to `https://jdpsalcedo.github.io/next-time/`.
+
+Routing uses `HashRouter` so URLs look like `…/next-time/#/timers` — that's deliberate; GH Pages doesn't natively SPA-fallback unknown paths, and hash routing dodges the issue entirely.
 
 ### Firestore security rules
 

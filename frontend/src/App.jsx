@@ -30,12 +30,22 @@ export default function App() {
   );
 }
 
+const IS_STATIC = import.meta.env.VITE_STATIC_MODE === 'true';
+
 function AppShell() {
   return (
     <div className="app">
       <header className="topbar">
         <div className="brand">
           <span>next-time</span>
+          {IS_STATIC && (
+            <span
+              className="brand-badge"
+              title="GitHub Pages static deploy — same Firebase data as the App Hosting site"
+            >
+              static
+            </span>
+          )}
         </div>
         <nav className="tabs" aria-label="Primary">
           <NavLink to="/" end className="tab">Home</NavLink>
