@@ -1,29 +1,18 @@
 # next-time
 
-Activity timer and tracker. Python (FastAPI + SQLite) backend, Vite + React frontend.
+Activity timer and tracker. Vite + React frontend, Firebase (Firestore + Google auth) for persistence.
 
 ## Data model
 
-- **Activity** — `title`, `description`, `duration_seconds`. Many-to-many with Tags and Timers.
-- **Tag** — `name`, `color`. Survives activity deletion (only the join row is removed).
-- **Timer** — `title`, `description`. Holds an ordered list of Activities. Activities survive timer deletion.
+- **Activity** — `title`, `description`, `duration_seconds`, `liked`, optional tags.
+- **Tag** — `name`, `color`. Survives activity deletion (only the link from the activity is removed).
+- **Timer** — `title`, `description`, plus an ordered `items[]` mixing two kinds of entries:
+  - **Ref**: `{ activity_id, duration_override }` — references an Activity, optionally overriding its duration for this timer only.
+  - **Inline**: `{ inline_title, inline_description, inline_duration_seconds }` — a one-off slot that lives only inside this timer.
 
-## Run it
+Each signed-in user's data lives under `users/{uid}/{tags|activities|timers|settings}` in Firestore.
 
-Two processes. Open two terminals.
-
-### Backend (port 8765)
-
-```bash
-cd backend
-python3 -m venv .venv
-.venv/bin/pip install -r requirements.txt
-.venv/bin/uvicorn app.main:app --reload --port 8765
-```
-
-API docs: <http://127.0.0.1:8765/docs>
-
-### Frontend (port 5173)
+## Run it locally
 
 ```bash
 cd frontend
@@ -31,44 +20,87 @@ npm install
 npm run dev
 ```
 
-Open <http://127.0.0.1:5173>. Vite proxies `/api/*` to the backend.
+Open <http://127.0.0.1:5173>. Sign in with Google on the landing screen.
+
+## Settings
+
+- **Dark mode** — flips a `data-theme` attribute on `<html>`; light/dark palettes defined in `styles.css`.
+- **Reverse timer countdown** — count up from 0 instead of down to 0.
+- **Dummy data** — toggling ON seeds tags, activities, and timers under the user's Firestore subtree. Toggling OFF removes only seeded rows (`is_seed=true`); your own data is untouched.
 
 ## Project layout
 
 ```
-backend/
-  app/
-    main.py            FastAPI app + CORS + router wiring
-    database.py        SQLAlchemy engine + session
-    models.py          Tag, Activity, Timer + association tables
-    schemas.py         Pydantic request/response models
-    routers/           tags.py, activities.py, timers.py
 frontend/
   src/
-    App.jsx            Router shell (top tabs on desktop, bottom nav on mobile)
-    api.js             fetch wrapper
-    pages/             Home, Activities, Timers
-    components/        TagChip, Modal
-    styles.css         Theme + responsive layout (breakpoint at 640px)
+    firebase.js        Firebase app init (auth + Firestore + persistent cache)
+    auth.jsx           AuthProvider, signIn/signOut, useAuth()
+    firebaseStore.js   Firestore CRUD (per-user subcollections)
+    api.js             Thin wrapper that re-exports the store as `api.*`
+    settings.jsx       Settings context, syncs with users/{uid}/settings/main
+    App.jsx            Sign-in gate + router shell
+    pages/             Home, Activities, Timers, Settings
+    components/        Modal, ContextMenu, TagChip, TimerDial, SortableActivityList
+    styles.css         Theme + responsive layout
 ```
 
-## Settings
+## Firestore security rules
 
-Four toggles on the Settings page, all persisted in SQLite and mirrored to `localStorage` (so theme applies without a flash on page load):
+Paste these into Firebase Console → Firestore → Rules:
 
-- **Dark mode** — flips a `data-theme` attribute on `<html>`; light/dark palettes defined in `styles.css`.
-- **Reverse timer countdown** — count up from 0 instead of down to 0. The TimerRunner reads this from `SettingsContext`.
-- **Dummy data** — toggling ON inserts 3 sample tags + 3 activities + 1 timer (flagged `is_seed=true`). Toggling OFF deletes only seeded rows; your own data is untouched.
-- **Static mode** — when on, all CRUD (tags, activities, timers, settings, dummy data seed) is stored in `localStorage` instead of going through the backend. **Default: on**, so the app works without the FastAPI server (e.g. when hosted on GitHub Pages). A small `static` badge next to the brand indicates the app is running in this mode. Turn it off to use the backend; turning it back on will restore your browser-local data.
+```
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /users/{userId}/{document=**} {
+      allow read, write: if request.auth != null && request.auth.uid == userId;
+    }
+  }
+}
+```
 
-Backend: `GET /api/settings`, `PATCH /api/settings`. Seeding happens server-side inside the PATCH handler when `dummy_data` flips.
+## Deploy (Firebase App Hosting)
 
-## Mobile responsiveness
+The app deploys to **Firebase App Hosting**. The Cloud Run container runs `node server.mjs` (a tiny static-file server defined in `frontend/server.mjs`) which serves `frontend/dist/` with SPA fallback.
 
-- Top tab bar collapses to a bottom nav under 640px.
-- Cards, form rows, and KPI grid reflow to single-column on narrow viewports.
-- Inputs sized for touch; modal scrolls within viewport.
+### One-time setup
 
-## Notes
+1. **Upgrade to the Blaze plan** — App Hosting requires it. Firebase Console → ⚙ → Usage and billing → Modify plan → Blaze.
 
-The SQLite file `backend/next_time.db` is created on first boot. Delete it to reset.
+2. **Create the App Hosting backend** in the Firebase Console:
+   - Build → App Hosting → **Create backend**
+   - Region: pick one (e.g. `us-central1`)
+   - GitHub repo: `jdpsalcedo/next-time`, branch: `main`
+   - **Root directory: `frontend`** (critical — that's where `package.json` + `apphosting.yaml` live)
+   - Backend ID: `next-time` (matches the workflow env var `APP_HOSTING_BACKEND_ID`)
+   - Live branch: `main`
+   - Auto-deploy: **disable** (the GitHub Actions workflow triggers rollouts instead)
+
+3. **Authorized domains** — once the backend is live, Firebase will give it a URL like `https://next-time--next-time-8844f.us-central1.hosted.app`. Add that domain to **Authentication → Settings → Authorized domains** so Google sign-in works.
+
+4. **Service account for CI**:
+   - GCP Console → IAM → Service Accounts → Create. Name: `github-deploy`.
+   - Grant the role **Firebase App Hosting Admin** (or the narrower role `Firebase App Hosting Compute Service Agent` if you scope down).
+   - Manage keys → Add key → JSON. Download.
+   - In GitHub: repo Settings → Secrets and variables → Actions → **New repository secret**.
+     - Name: `FIREBASE_SERVICE_ACCOUNT_KEY`
+     - Value: paste the full JSON contents of the key file.
+
+### Deploys
+
+Push to `main` → `.github/workflows/deploy.yml` authenticates with the service account, installs `firebase-tools`, and runs `firebase apphosting:rollouts:create next-time --git-branch main`. App Hosting then builds (`npm install` → `npm run build`) and rolls out a new revision.
+
+### Firestore security rules
+
+Paste into Firebase Console → Firestore Database → Rules:
+
+```
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /users/{userId}/{document=**} {
+      allow read, write: if request.auth != null && request.auth.uid == userId;
+    }
+  }
+}
+```

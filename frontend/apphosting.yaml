@@ -1,0 +1,12 @@
+# Firebase App Hosting config for next-time.
+# Docs: https://firebase.google.com/docs/app-hosting/configure
+runConfig:
+  cpu: 1
+  memoryMiB: 512
+  minInstances: 0
+  maxInstances: 1
+  concurrency: 80
+
+# App Hosting auto-detects npm scripts:
+#   build → "npm run build" (produces dist/)
+#   start → "npm start"     (serves dist/ via server.mjs)

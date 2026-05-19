@@ -3,20 +3,39 @@ import Home from './pages/Home.jsx';
 import Activities from './pages/Activities.jsx';
 import Timers from './pages/Timers.jsx';
 import Settings from './pages/Settings.jsx';
-import { useSettings } from './settings.jsx';
+import { SettingsProvider } from './settings.jsx';
+import { useAuth } from './auth.jsx';
 
 export default function App() {
-  const { settings } = useSettings();
+  const { user, loading, signIn } = useAuth();
+
+  if (loading) {
+    return <div className="auth-screen"><div className="muted">Loading…</div></div>;
+  }
+  if (!user) {
+    return (
+      <div className="auth-screen">
+        <h1 style={{ marginBottom: 8 }}>next-time</h1>
+        <p style={{ marginBottom: 20, maxWidth: 320, textAlign: 'center' }}>
+          Sign in to sync your activities and timers across devices.
+        </p>
+        <button className="btn" onClick={signIn}>Sign in with Google</button>
+      </div>
+    );
+  }
+  return (
+    <SettingsProvider>
+      <AppShell />
+    </SettingsProvider>
+  );
+}
+
+function AppShell() {
   return (
     <div className="app">
       <header className="topbar">
         <div className="brand">
           <span>next-time</span>
-          {settings.static_mode && (
-            <span className="brand-badge" title="Running in static mode — data is stored in this browser only">
-              static
-            </span>
-          )}
         </div>
         <nav className="tabs" aria-label="Primary">
           <NavLink to="/" end className="tab">Home</NavLink>

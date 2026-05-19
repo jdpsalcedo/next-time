@@ -5,9 +5,8 @@ const STORAGE_KEY = 'next-time.settings';
 
 const DEFAULTS = {
   dark_mode: false,
-  reverse_countdown: true,
+  reverse_countdown: false,
   dummy_data: false,
-  static_mode: true,
 };
 
 function readCache() {

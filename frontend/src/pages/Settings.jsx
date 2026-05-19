@@ -1,8 +1,10 @@
 import { useState } from 'react';
 import { useSettings } from '../settings.jsx';
+import { useAuth } from '../auth.jsx';
 
 export default function Settings() {
   const { settings, synced, update } = useSettings();
+  const { user, signOut } = useAuth();
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(null);
 
@@ -32,6 +34,20 @@ export default function Settings() {
       )}
 
       <div className="list">
+        <div className="card">
+          <div className="row">
+            <div className="row-main">
+              <div style={{ fontWeight: 600 }}>Signed in</div>
+              <div className="muted" style={{ marginTop: 4 }}>
+                {user?.email ?? user?.displayName ?? 'Google account'}
+              </div>
+            </div>
+            <button type="button" className="btn btn-ghost btn-sm" onClick={signOut}>
+              Sign out
+            </button>
+          </div>
+        </div>
+
         <SettingRow
           label="Dark mode"
           description="Switch between dark and light themes."
@@ -52,13 +68,6 @@ export default function Settings() {
           on={settings.dummy_data}
           busy={busy === 'dummy_data'}
           onToggle={() => toggle('dummy_data')}
-        />
-        <SettingRow
-          label="Static mode"
-          description="Store all data in this browser instead of the backend. Lets the app run without the FastAPI server (e.g. on GitHub Pages). Turning off requires the backend to be reachable."
-          on={settings.static_mode}
-          busy={busy === 'static_mode'}
-          onToggle={() => toggle('static_mode')}
         />
       </div>
     </div>

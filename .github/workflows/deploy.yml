@@ -1,4 +1,4 @@
-name: Deploy frontend to GitHub Pages
+name: Deploy to Firebase App Hosting
 
 on:
   push:
@@ -8,44 +8,38 @@ on:
       - '.github/workflows/deploy.yml'
   workflow_dispatch:
 
-permissions:
-  contents: read
-  pages: write
-  id-token: write
-
+# Cancel an in-flight run if a new push lands on main.
 concurrency:
-  group: pages
-  cancel-in-progress: false
+  group: app-hosting
+  cancel-in-progress: true
 
 jobs:
-  build:
+  rollout:
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: frontend
+    permissions:
+      contents: read
+    env:
+      FIREBASE_PROJECT_ID: next-time-8844f
+      # Set this to the backend ID you choose when creating the App Hosting backend.
+      APP_HOSTING_BACKEND_ID: next-time
     steps:
       - uses: actions/checkout@v4
 
       - uses: actions/setup-node@v4
         with:
           node-version: '20'
-          cache: 'npm'
-          cache-dependency-path: frontend/package-lock.json
 
-      - run: npm ci
-      - run: npm run build
-
-      - uses: actions/configure-pages@v5
-      - uses: actions/upload-pages-artifact@v3
+      - id: auth
+        uses: google-github-actions/auth@v2
         with:
-          path: frontend/dist
+          credentials_json: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_KEY }}
 
-  deploy:
-    needs: build
-    runs-on: ubuntu-latest
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
-    steps:
-      - id: deployment
-        uses: actions/deploy-pages@v4
+      - name: Install Firebase CLI
+        run: npm install -g firebase-tools
+
+      - name: Trigger App Hosting rollout
+        run: |
+          firebase apphosting:rollouts:create "$APP_HOSTING_BACKEND_ID" \
+            --project "$FIREBASE_PROJECT_ID" \
+            --git-branch "${{ github.ref_name }}" \
+            --force
