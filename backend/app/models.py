@@ -11,14 +11,6 @@ activity_tags = Table(
     Column("tag_id", ForeignKey("tags.id", ondelete="CASCADE"), primary_key=True),
 )
 
-timer_activities = Table(
-    "timer_activities",
-    Base.metadata,
-    Column("timer_id", ForeignKey("timers.id", ondelete="CASCADE"), primary_key=True),
-    Column("activity_id", ForeignKey("activities.id", ondelete="CASCADE"), primary_key=True),
-    Column("position", Integer, nullable=False, default=0),
-)
-
 
 class Tag(Base):
     __tablename__ = "tags"
@@ -40,14 +32,33 @@ class Activity(Base):
     title: Mapped[str] = mapped_column(String(128), nullable=False)
     description: Mapped[str] = mapped_column(String(1024), nullable=False, default="")
     duration_seconds: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    liked: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    is_inline: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     is_seed: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
 
     tags: Mapped[list[Tag]] = relationship(
         secondary=activity_tags, back_populates="activities"
     )
-    timers: Mapped[list["Timer"]] = relationship(
-        secondary=timer_activities, back_populates="activities"
+
+
+class TimerSplit(Base):
+    __tablename__ = "timer_activities"
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    timer_id: Mapped[int] = mapped_column(
+        ForeignKey("timers.id", ondelete="CASCADE"), nullable=False
     )
+    position: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    activity_id: Mapped[int | None] = mapped_column(
+        ForeignKey("activities.id", ondelete="CASCADE"), nullable=True
+    )
+    duration_seconds_override: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    inline_title: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    inline_description: Mapped[str | None] = mapped_column(String(1024), nullable=True)
+    inline_duration_seconds: Mapped[int | None] = mapped_column(Integer, nullable=True)
+
+    activity: Mapped[Activity | None] = relationship("Activity")
+    timer: Mapped["Timer"] = relationship(back_populates="splits")
 
 
 class Timer(Base):
@@ -58,16 +69,8 @@ class Timer(Base):
     description: Mapped[str] = mapped_column(String(1024), nullable=False, default="")
     is_seed: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
 
-    activities: Mapped[list[Activity]] = relationship(
-        secondary=timer_activities, back_populates="timers", order_by=timer_activities.c.position
+    splits: Mapped[list[TimerSplit]] = relationship(
+        back_populates="timer",
+        order_by=TimerSplit.position,
+        cascade="all, delete-orphan",
     )
-
-
-class Settings(Base):
-    __tablename__ = "settings"
-
-    id: Mapped[int] = mapped_column(primary_key=True, default=1)
-    dark_mode: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
-    reverse_countdown: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
-    dummy_data: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
-    static_mode: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)

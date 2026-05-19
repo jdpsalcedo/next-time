@@ -4,8 +4,8 @@ import { api } from './api.js';
 const STORAGE_KEY = 'next-time.settings';
 
 const DEFAULTS = {
-  dark_mode: true,
-  reverse_countdown: false,
+  dark_mode: false,
+  reverse_countdown: true,
   dummy_data: false,
   static_mode: true,
 };

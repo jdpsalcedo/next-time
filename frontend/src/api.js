@@ -37,7 +37,10 @@ export const api = {
   deleteTag: async (id) =>
     isStaticMode() ? local.deleteTag(id) : request(`/tags/${id}`, { method: 'DELETE' }),
 
-  listActivities: async () => (isStaticMode() ? local.listActivities() : request('/activities')),
+  listActivities: async ({ include_inline = false } = {}) =>
+    isStaticMode()
+      ? local.listActivities({ include_inline })
+      : request(`/activities${include_inline ? '?include_inline=true' : ''}`),
   createActivity: async (data) =>
     isStaticMode()
       ? local.createActivity(data)

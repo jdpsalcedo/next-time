@@ -1,7 +1,10 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { api, formatDuration } from '../api.js';
 import TagChip from '../components/TagChip.jsx';
 import Modal from '../components/Modal.jsx';
+import ContextMenu from '../components/ContextMenu.jsx';
+import { MdAdd, MdExpandMore, MdExpandLess, MdFilterList, MdFilterListOff } from "react-icons/md";
+import { FaHeart } from "react-icons/fa6";
 
 const EMPTY_FORM = { title: '', description: '', minutes: 0, seconds: 0, tag_ids: [] };
 
@@ -27,6 +30,7 @@ export default function Activities() {
   const [search, setSearch] = useState('');
   const [sortBy, setSortBy] = useState('alpha-asc');
   const [selectedTagIds, setSelectedTagIds] = useState([]);
+  const [likedFilter, setLikedFilter] = useState(false);
 
   async function refresh() {
     const [a, g] = await Promise.all([api.listActivities(), api.listTags()]);
@@ -50,6 +54,10 @@ export default function Activities() {
           a.title.toLowerCase().includes(q) ||
           a.tags.some((t) => t.name.toLowerCase().includes(q))
       );
+    }
+
+    if (likedFilter) {
+      list = list.filter((a) => a.liked);
     }
 
     if (selectedTagIds.length > 0) {
@@ -92,7 +100,22 @@ export default function Activities() {
       return { grouped: true, groups: [...groups.entries()] };
     }
     return { grouped: false, items: sorted };
-  }, [activities, search, sortBy, selectedTagIds]);
+  }, [activities, search, sortBy, selectedTagIds, likedFilter]);
+
+  const sortedTags = useMemo(
+    () => [...tags].sort((a, b) => a.name.localeCompare(b.name)),
+    [tags]
+  );
+
+  const orderedTags = useMemo(() => {
+    const selectedSet = new Set(selectedTagIds);
+    const selected = [];
+    const unselected = [];
+    for (const t of tags) {
+      (selectedSet.has(t.id) ? selected : unselected).push(t);
+    }
+    return [...selected, ...unselected];
+  }, [tags, selectedTagIds]);
 
   const filtersActive = search.trim() !== '' || selectedTagIds.length > 0;
   const totalShown = view.grouped
@@ -144,6 +167,18 @@ export default function Activities() {
     } catch (e) { setError(e.message); }
   }
 
+  async function toggleLike(activity) {
+    setActivities((prev) =>
+      prev.map((a) => (a.id === activity.id ? { ...a, liked: !a.liked } : a))
+    );
+    try {
+      await api.updateActivity(activity.id, { liked: !activity.liked });
+    } catch (e) {
+      setError(e.message);
+      await refresh();
+    }
+  }
+
   async function createTag() {
     setError('');
     if (!newTag.name.trim()) return;
@@ -184,79 +219,48 @@ export default function Activities() {
   return (
     <div>
       <div className="section-header">
-        <h1>Activities</h1>
+        <input
+              className="input input-search"
+              placeholder="Search activities by name or tag..."
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+            />
         <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-          <button
+          {/* <button
             className={`icon-btn ${filtersActive ? 'has-dot' : ''}`}
             aria-label={filtersOpen ? 'Hide filters' : 'Show filters'}
             aria-pressed={filtersOpen}
             onClick={() => setFiltersOpen((v) => !v)}
             title={filtersOpen ? 'Hide filters' : 'Show filters'}
           >
-            <FilterIcon crossed={!filtersOpen} />
-          </button>
-          <button className="btn btn-ghost" onClick={() => setTagModal(true)}>Manage tags</button>
-          <button className="btn" onClick={openCreate}>New activity</button>
+            {filtersOpen ? <MdFilterList /> : <MdFilterListOff />}
+          </button> */}
+          <button className="icon-btn" onClick={openCreate}><MdAdd/></button>
         </div>
+      </div>
+      <div className="tag-row">
+        <button
+          type="button"
+          className={`tag-chip liked-filter ${likedFilter ? 'selected' : ''}`}
+          onClick={() => setLikedFilter((v) => !v)}
+          aria-pressed={likedFilter}
+          title={likedFilter ? 'Show all' : 'Show only liked'}
+        >
+          <FaHeart aria-hidden />
+          Liked
+        </button>
+        {orderedTags.map((t) => (
+          <TagChip
+            key={t.id}
+            tag={t}
+            selectable
+            selected={selectedTagIds.includes(t.id)}
+            onClick={() => toggleFilterTag(t.id)}
+          />
+        ))}
       </div>
 
       {error && <div className="card" style={{ borderColor: 'var(--danger)', marginBottom: 12 }}>{error}</div>}
-
-      {filtersOpen && (
-        <div className="card filter-card">
-          <div className="filter-top">
-            <input
-              className="input"
-              placeholder="Search activities by name or tag..."
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-            />
-            <select
-              className="input"
-              value={sortBy}
-              onChange={(e) => setSortBy(e.target.value)}
-              aria-label="Sort"
-            >
-              {SORT_OPTIONS.map((o) => (
-                <option key={o.value} value={o.value}>{o.label}</option>
-              ))}
-            </select>
-          </div>
-
-          {tags.length > 0 && (
-            <div className="filter-tags">
-              <div className="filter-tags-head">
-                <button
-                  className="collapse-btn"
-                  onClick={() => setTagsOpen((v) => !v)}
-                  aria-expanded={tagsOpen}
-                >
-                  <span style={{ fontWeight: 600 }}>Tags</span>
-                  <span className="chevron" aria-hidden>{tagsOpen ? '⌄' : '›'}</span>
-                </button>
-                {selectedTagIds.length > 0 && (
-                  <button className="btn btn-ghost btn-sm" onClick={() => setSelectedTagIds([])}>
-                    Clear
-                  </button>
-                )}
-              </div>
-              {tagsOpen && (
-                <div className="tag-row" style={{ marginTop: 10 }}>
-                  {tags.map((t) => (
-                    <TagChip
-                      key={t.id}
-                      tag={t}
-                      selectable
-                      selected={selectedTagIds.includes(t.id)}
-                      onClick={() => toggleFilterTag(t.id)}
-                    />
-                  ))}
-                </div>
-              )}
-            </div>
-          )}
-        </div>
-      )}
 
       {activities.length === 0 ? (
         <div className="card empty">No activities yet. Create one to get started.</div>
@@ -269,7 +273,7 @@ export default function Activities() {
               <div className="letter-header">{letter}</div>
               <div className="list">
                 {items.map((a) => (
-                  <ActivityCard key={a.id} activity={a} onEdit={openEdit} onDelete={removeActivity} />
+                  <ActivityCard key={a.id} activity={a} onEdit={openEdit} onDelete={removeActivity} onToggleLike={toggleLike} />
                 ))}
               </div>
             </div>
@@ -278,7 +282,7 @@ export default function Activities() {
       ) : (
         <div className="list">
           {view.items.map((a) => (
-            <ActivityCard key={a.id} activity={a} onEdit={openEdit} onDelete={removeActivity} />
+            <ActivityCard key={a.id} activity={a} onEdit={openEdit} onDelete={removeActivity} onToggleLike={toggleLike} />
           ))}
         </div>
       )}
@@ -334,8 +338,8 @@ export default function Activities() {
               {tags.length === 0 ? (
                 <div className="muted">No tags yet. Create one from "Manage tags".</div>
               ) : (
-                <div className="tag-row">
-                  {tags.map((t) => (
+                <div className="tag-row wrap">
+                  {sortedTags.map((t) => (
                     <TagChip
                       key={t.id}
                       tag={t}
@@ -344,6 +348,9 @@ export default function Activities() {
                       onClick={() => toggleTagInForm(t.id)}
                     />
                   ))}
+                  <button className="tag-chip tag-chip-more" onClick={() => setTagModal(true)}>
+                    +
+                  </button>
                 </div>
               )}
             </div>
@@ -360,35 +367,31 @@ export default function Activities() {
         <Modal title="Tags" onClose={() => setTagModal(false)}>
           <div className="form">
             <div className="form-row">
-              <div>
+              <div style={{ flex: 1 }}>
                 <label className="label">Name</label>
-                <input
-                  className="input"
-                  value={newTag.name}
-                  onChange={(e) => setNewTag({ ...newTag, name: e.target.value })}
-                />
-              </div>
-              <div>
-                <label className="label">Color</label>
-                <input
-                  className="input"
-                  type="color"
-                  value={newTag.color}
-                  onChange={(e) => setNewTag({ ...newTag, color: e.target.value })}
-                />
+                <div style={{ display: 'flex', gap: 8 }}>
+                  <input
+                    className="input"
+                    value={newTag.name}
+                    onChange={(e) => setNewTag({ ...newTag, name: e.target.value })}
+                  />
+                  <input
+                    className="input-color"
+                    type="color"
+                    value={newTag.color}
+                    onChange={(e) => setNewTag({ ...newTag, color: e.target.value })}
+                  />
+                  <button className="icon-btn" onClick={createTag}><MdAdd /></button>
+                </div>
               </div>
             </div>
-            <button className="btn" onClick={createTag}>Add tag</button>
             <div style={{ marginTop: 8 }}>
               {tags.length === 0 ? (
                 <div className="muted">No tags yet.</div>
               ) : (
-                <div className="list">
-                  {tags.map((t) => (
-                    <div key={t.id} className="row">
-                      <TagChip tag={t} />
-                      <button className="btn btn-danger btn-sm" onClick={() => removeTag(t.id)}>Delete</button>
-                    </div>
+                <div className="tag-row wrap">
+                  {sortedTags.map((t) => (
+                    <TagChip key={t.id} tag={t} onRemove={() => removeTag(t.id)} />
                   ))}
                 </div>
               )}
@@ -403,37 +406,71 @@ export default function Activities() {
   );
 }
 
-function ActivityCard({ activity, onEdit, onDelete }) {
+const MAX_VISIBLE_CARD_TAGS = 2;
+
+function ActivityCard({ activity, onEdit, onDelete, onToggleLike }) {
+  const [showAll, setShowAll] = useState(false);
+  const total = activity.tags.length;
+  const hasMore = total > MAX_VISIBLE_CARD_TAGS;
+  const visible = showAll || !hasMore
+    ? activity.tags
+    : activity.tags.slice(0, MAX_VISIBLE_CARD_TAGS);
+  const hiddenCount = total - MAX_VISIBLE_CARD_TAGS;
+
+  const cardRef = useRef(null);
+  function focusCard() {
+    if (!cardRef.current) return;
+    const topbar = document.querySelector('.topbar');
+    const offset = (topbar?.offsetHeight ?? 0) + 8;
+    const rect = cardRef.current.getBoundingClientRect();
+    window.scrollTo({
+      top: window.scrollY + rect.top - offset,
+      behavior: 'smooth',
+    });
+  }
+
   return (
-    <div className="card">
+    <div ref={cardRef} className="card">
       <div className="row">
         <div className="row-main">
-          <div style={{ fontWeight: 600 }}>{activity.title}</div>
+          <div className={`activity-card-head ${showAll ? 'wrap' : ''}`}>
+            <span className="activity-card-title">{activity.title}</span>
+            {visible.map((t) => <TagChip key={t.id} tag={t} />)}
+            {hasMore && (
+              <button
+                type="button"
+                className="tag-chip tag-chip-more"
+                onClick={() => setShowAll((v) => !v)}
+                aria-expanded={showAll}
+                aria-label={showAll ? 'Show fewer tags' : `Show ${hiddenCount} more tags`}
+              >
+                {showAll ? 'less' : `+${hiddenCount}`}
+              </button>
+            )}
+          </div>
           {activity.description && <div className="muted">{activity.description}</div>}
           <div className="muted" style={{ marginTop: 4 }}>{formatDuration(activity.duration_seconds)}</div>
-          {activity.tags.length > 0 && (
-            <div className="tag-row" style={{ marginTop: 8 }}>
-              {activity.tags.map((t) => <TagChip key={t.id} tag={t} />)}
-            </div>
-          )}
         </div>
-        <div style={{ display: 'flex', gap: 6 }}>
-          <button className="btn btn-ghost btn-sm" onClick={() => onEdit(activity)}>Edit</button>
-          <button className="btn btn-danger btn-sm" onClick={() => onDelete(activity.id)}>Delete</button>
+        <div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
+          <button
+            type="button"
+            className={`icon-btn like-btn ${activity.liked ? 'liked' : ''}`}
+            onClick={() => onToggleLike(activity)}
+            aria-pressed={!!activity.liked}
+            aria-label={activity.liked ? 'Unlike' : 'Like'}
+            title={activity.liked ? 'Unlike' : 'Like'}
+          >
+            <FaHeart />
+          </button>
+          <ContextMenu
+            items={[
+              { label: 'Edit', onClick: () => onEdit(activity) },
+              { label: 'Delete', danger: true, onClick: () => onDelete(activity.id) },
+            ]}
+            onOpen={focusCard}
+          />
         </div>
       </div>
     </div>
-  );
-}
-
-function FilterIcon({ crossed }) {
-  return (
-    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-         strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-      <line x1="4" y1="6" x2="20" y2="6" />
-      <line x1="4" y1="12" x2="14" y2="12" />
-      <line x1="4" y1="18" x2="8" y2="18" />
-      {crossed && <line x1="3" y1="21" x2="21" y2="3" />}
-    </svg>
   );
 }

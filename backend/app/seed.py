@@ -1,6 +1,6 @@
 from sqlalchemy.orm import Session
 
-from .models import Activity, Tag, Timer, timer_activities
+from .models import Activity, Tag, Timer, TimerSplit
 
 
 SEED_TAGS = [
@@ -93,10 +93,8 @@ def seed_dummy_data(db: Session) -> None:
             activity = activity_by_title.get(title)
             if activity is None:
                 continue
-            db.execute(
-                timer_activities.insert().values(
-                    timer_id=timer.id, activity_id=activity.id, position=pos
-                )
+            db.add(
+                TimerSplit(timer_id=timer.id, activity_id=activity.id, position=pos)
             )
 
     db.commit()

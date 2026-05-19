@@ -20,8 +20,11 @@ def _load_tags(db: Session, tag_ids: list[int]) -> list[Tag]:
 
 
 @router.get("", response_model=list[ActivityRead])
-def list_activities(db: Session = Depends(get_db)):
-    return db.query(Activity).order_by(Activity.id.desc()).all()
+def list_activities(include_inline: bool = False, db: Session = Depends(get_db)):
+    query = db.query(Activity)
+    if not include_inline:
+        query = query.filter(Activity.is_inline.is_(False))
+    return query.order_by(Activity.id.desc()).all()
 
 
 @router.post("", response_model=ActivityRead, status_code=status.HTTP_201_CREATED)
@@ -30,6 +33,8 @@ def create_activity(payload: ActivityCreate, db: Session = Depends(get_db)):
         title=payload.title,
         description=payload.description,
         duration_seconds=payload.duration_seconds,
+        liked=payload.liked,
+        is_inline=payload.is_inline,
         tags=_load_tags(db, payload.tag_ids),
     )
     db.add(activity)
@@ -59,6 +64,10 @@ def update_activity(activity_id: int, payload: ActivityUpdate, db: Session = Dep
         activity.duration_seconds = payload.duration_seconds
     if payload.tag_ids is not None:
         activity.tags = _load_tags(db, payload.tag_ids)
+    if payload.liked is not None:
+        activity.liked = payload.liked
+    if payload.is_inline is not None:
+        activity.is_inline = payload.is_inline
     db.commit()
     db.refresh(activity)
     return activity
