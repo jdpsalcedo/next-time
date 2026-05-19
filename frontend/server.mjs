@@ -58,6 +58,23 @@ const server = http.createServer((req, res) => {
   });
 });
 
-server.listen(PORT, () => {
-  console.log(`next-time listening on :${PORT}`);
+server.on('error', (err) => {
+  console.error('server error:', err);
+  process.exit(1);
+});
+
+process.on('uncaughtException', (err) => {
+  console.error('uncaught:', err);
+});
+
+console.log(`starting next-time | PORT=${PORT} DIST=${DIST}`);
+try {
+  fs.accessSync(DIST);
+  console.log(`dist/ found at ${DIST}`);
+} catch {
+  console.error(`dist/ MISSING at ${DIST} — build did not run`);
+}
+
+server.listen(PORT, '0.0.0.0', () => {
+  console.log(`next-time listening on 0.0.0.0:${PORT}`);
 });
