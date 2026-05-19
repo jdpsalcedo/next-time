@@ -3,12 +3,21 @@ import Home from './pages/Home.jsx';
 import Activities from './pages/Activities.jsx';
 import Timers from './pages/Timers.jsx';
 import Settings from './pages/Settings.jsx';
+import { useSettings } from './settings.jsx';
 
 export default function App() {
+  const { settings } = useSettings();
   return (
     <div className="app">
       <header className="topbar">
-        <div className="brand">next-time</div>
+        <div className="brand">
+          <span>next-time</span>
+          {settings.static_mode && (
+            <span className="brand-badge" title="Running in static mode — data is stored in this browser only">
+              static
+            </span>
+          )}
+        </div>
         <nav className="tabs" aria-label="Primary">
           <NavLink to="/" end className="tab">Home</NavLink>
           <NavLink to="/activities" className="tab">Activities</NavLink>

@@ -59,7 +59,7 @@ Four toggles on the Settings page, all persisted in SQLite and mirrored to `loca
 - **Dark mode** — flips a `data-theme` attribute on `<html>`; light/dark palettes defined in `styles.css`.
 - **Reverse timer countdown** — count up from 0 instead of down to 0. The TimerRunner reads this from `SettingsContext`.
 - **Dummy data** — toggling ON inserts 3 sample tags + 3 activities + 1 timer (flagged `is_seed=true`). Toggling OFF deletes only seeded rows; your own data is untouched.
-- **Static mode** — stub toggle; persisted but no behavior wired yet.
+- **Static mode** — when on, all CRUD (tags, activities, timers, settings, dummy data seed) is stored in `localStorage` instead of going through the backend. **Default: on**, so the app works without the FastAPI server (e.g. when hosted on GitHub Pages). A small `static` badge next to the brand indicates the app is running in this mode. Turn it off to use the backend; turning it back on will restore your browser-local data.
 
 Backend: `GET /api/settings`, `PATCH /api/settings`. Seeding happens server-side inside the PATCH handler when `dummy_data` flips.
 

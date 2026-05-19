@@ -7,7 +7,7 @@ const DEFAULTS = {
   dark_mode: true,
   reverse_countdown: false,
   dummy_data: false,
-  static_mode: false,
+  static_mode: true,
 };
 
 function readCache() {

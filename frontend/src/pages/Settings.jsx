@@ -55,7 +55,7 @@ export default function Settings() {
         />
         <SettingRow
           label="Static mode"
-          description="Reserved for future behavior."
+          description="Store all data in this browser instead of the backend. Lets the app run without the FastAPI server (e.g. on GitHub Pages). Turning off requires the backend to be reachable."
           on={settings.static_mode}
           busy={busy === 'static_mode'}
           onToggle={() => toggle('static_mode')}
