@@ -2,6 +2,9 @@ import { useEffect, useRef, useState } from 'react';
 import { MdDragHandle } from 'react-icons/md';
 import { formatDuration } from '../api.js';
 import ContextMenu from './ContextMenu.jsx';
+import TagChip from './TagChip.jsx';
+
+const MAX_VISIBLE_CARD_TAGS = 2;
 
 export default function SortableActivityList({
   items,
@@ -68,10 +71,17 @@ export default function SortableActivityList({
 
 function SortableItem({ a, dragging, onStartDrag, menuItems, onDurationChange }) {
   const itemRef = useRef(null);
+  const [showAllTags, setShowAllTags] = useState(false);
 
   function focusItem() {
     itemRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
   }
+
+  const tags = a.tags || [];
+  const total = tags.length;
+  const hasMore = total > MAX_VISIBLE_CARD_TAGS;
+  const visible = showAllTags || !hasMore ? tags : tags.slice(0, MAX_VISIBLE_CARD_TAGS);
+  const hiddenCount = total - MAX_VISIBLE_CARD_TAGS;
 
   return (
     <div
@@ -91,8 +101,23 @@ function SortableItem({ a, dragging, onStartDrag, menuItems, onDurationChange })
         <MdDragHandle size={18} aria-hidden />
       </button>
       <div style={{ flex: 1, minWidth: 0 }}>
-        <div style={{ fontWeight: 500, overflowWrap: 'anywhere' }}>
-          {a.title}
+        <div className="activity-card-head wrap">
+          <span className="activity-card-title" style={{ overflowWrap: 'anywhere' }}>
+            {a.title}
+          </span>
+          {visible.map((t) => <TagChip key={t.id} tag={t} />)}
+          {hasMore && (
+            <button
+              type="button"
+              className="tag-chip tag-chip-more"
+              onPointerDown={(e) => e.stopPropagation()}
+              onClick={() => setShowAllTags((v) => !v)}
+              aria-expanded={showAllTags}
+              aria-label={showAllTags ? 'Show fewer tags' : `Show ${hiddenCount} more tags`}
+            >
+              {showAllTags ? 'less' : `+${hiddenCount}`}
+            </button>
+          )}
         </div>
         {!onDurationChange && (
           <div className="muted">{formatDuration(a.duration_seconds)}</div>

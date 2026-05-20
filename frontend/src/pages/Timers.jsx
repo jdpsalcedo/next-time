@@ -1,9 +1,12 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { api, formatDuration } from '../api.js';
+import { useToast } from '../toast.jsx';
 import Modal from '../components/Modal.jsx';
 import ContextMenu from '../components/ContextMenu.jsx';
 import SortableActivityList from '../components/SortableActivityList.jsx';
+import TagChip from '../components/TagChip.jsx';
 import TimerDial from '../components/TimerDial.jsx';
+import ActivityFormModal from '../components/ActivityFormModal.jsx';
 import { useSettings } from '../settings.jsx';
 import {
   MdAdd,
@@ -94,10 +97,13 @@ export default function Timers() {
   const { settings } = useSettings();
   const reverse = !!settings.reverse_countdown;
 
+  const toast = useToast();
   const [timers, setTimers] = useState([]);
   const [activities, setActivities] = useState([]);
+  const [tags, setTags] = useState([]);
   const [editing, setEditing] = useState(null);
   const [error, setError] = useState('');
+  const [saveAsForm, setSaveAsForm] = useState(null);
 
   const [runStates, setRunStates] = useState({});
   const [focusedId, setFocusedId] = useState(null);
@@ -109,9 +115,10 @@ export default function Timers() {
   useEffect(() => { timersRef.current = timers; }, [timers]);
 
   async function refresh() {
-    const [t, a] = await Promise.all([api.listTimers(), api.listActivities()]);
+    const [t, a, g] = await Promise.all([api.listTimers(), api.listActivities(), api.listTags()]);
     setTimers(t);
     setActivities(a);
+    setTags(g);
   }
 
   const tmpIdRef = useRef(0);
@@ -262,22 +269,67 @@ export default function Timers() {
       }),
     };
     if (!payload.title) { setError('Title is required'); return; }
+    const wasCreate = editing.mode === 'create';
     try {
-      if (editing.mode === 'create') await api.createTimer(payload);
+      if (wasCreate) await api.createTimer(payload);
       else await api.updateTimer(editing.id, payload);
       setEditing(null);
       await refresh();
-    } catch (e) { setError(e.message); }
+      toast.success(wasCreate ? `Created "${payload.title}"` : `Updated "${payload.title}"`);
+    } catch (e) {
+      setError(e.message);
+      toast.error(e.message);
+    }
+  }
+
+  async function duplicateTimer(id) {
+    const src = timers.find((t) => t.id === id);
+    if (!src) return;
+    const payload = {
+      title: `${src.title} (copy)`,
+      description: src.description || '',
+      activities: src.activities.map((a) => {
+        if (a.type === 'inline') {
+          return {
+            inline_title: a.title,
+            inline_description: a.description || '',
+            duration_seconds: a.duration_seconds || 0,
+          };
+        }
+        const orig = activities.find((x) => x.id === a.activity_id);
+        const entry = { activity_id: a.activity_id };
+        if (
+          typeof a.duration_seconds === 'number' &&
+          a.duration_seconds !== orig?.duration_seconds
+        ) {
+          entry.duration_seconds = a.duration_seconds;
+        }
+        return entry;
+      }),
+    };
+    try {
+      await api.createTimer(payload);
+      await refresh();
+      toast.success(`Duplicated "${src.title}"`);
+    } catch (e) {
+      setError(e.message);
+      toast.error(e.message);
+    }
   }
 
   async function removeTimer(id) {
     if (!confirm('Delete this timer? Its activities will not be removed.')) return;
+    const removed = timers.find((t) => t.id === id);
     try {
       await api.deleteTimer(id);
       resetRun(id);
       if (focusedId === id) setFocusedId(null);
       await refresh();
-    } catch (e) { setError(e.message); }
+      toast.success(removed ? `Deleted "${removed.title}"` : 'Timer deleted');
+    } catch (e) {
+      setError(e.message);
+      toast.error(e.message);
+    }
   }
 
   function removeItem(itemId) {
@@ -347,40 +399,47 @@ export default function Timers() {
     });
   }
 
-  async function saveAsActivity(itemId) {
+  function saveAsActivity(itemId) {
     const item = editing?.form?.items.find((it) => it.id === itemId);
     if (!item || item.type !== 'inline') return;
-    setError('');
-    try {
-      const created = await api.createActivity({
-        title: item.inline_title || 'Untitled',
+    const duration = item.duration_seconds || 0;
+    setSaveAsForm({
+      itemId,
+      initialValues: {
+        title: item.inline_title || '',
         description: item.inline_description || '',
-        duration_seconds: item.duration_seconds || 0,
+        minutes: Math.floor(duration / 60),
+        seconds: duration % 60,
         tag_ids: [],
-      });
-      setActivities((prev) => [created, ...prev]);
-      setEditing((prev) => {
-        if (!prev) return prev;
-        return {
-          ...prev,
-          form: {
-            ...prev.form,
-            items: prev.form.items.map((it) =>
-              it.id === itemId
-                ? {
-                    id: it.id,
-                    type: 'ref',
-                    activity_id: created.id,
-                    duration_seconds: created.duration_seconds,
-                  }
-                : it
-            ),
-          },
-        };
-      });
-    } catch (e) {
-      setError(e.message);
-    }
+      },
+    });
+  }
+
+  async function commitSaveAsActivity(payload) {
+    const { itemId } = saveAsForm;
+    const created = await api.createActivity(payload);
+    setActivities((prev) => [created, ...prev]);
+    setEditing((prev) => {
+      if (!prev) return prev;
+      return {
+        ...prev,
+        form: {
+          ...prev.form,
+          items: prev.form.items.map((it) =>
+            it.id === itemId
+              ? {
+                  id: it.id,
+                  type: 'ref',
+                  activity_id: created.id,
+                  duration_seconds: created.duration_seconds,
+                }
+              : it
+          ),
+        },
+      };
+    });
+    setSaveAsForm(null);
+    toast.success(`Saved "${created.title}" as activity`);
   }
 
   function pickActivityFromList(activity) {
@@ -417,6 +476,7 @@ export default function Timers() {
             is_inline: true,
             title: it.inline_title || '',
             duration_seconds: it.duration_seconds || 0,
+            tags: [],
           };
         }
         const a = byId.get(it.activity_id);
@@ -427,6 +487,7 @@ export default function Timers() {
           activity_id: a.id,
           title: a.title,
           duration_seconds: it.duration_seconds,
+          tags: a.tags || [],
         };
       })
       .filter(Boolean);
@@ -465,6 +526,7 @@ export default function Timers() {
               onReset={() => resetRun(t.id)}
               onFocus={() => setFocusedId(t.id)}
               onEdit={() => openEdit(t)}
+              onDuplicate={() => duplicateTimer(t.id)}
               onDelete={() => removeTimer(t.id)}
             />
           ))}
@@ -560,6 +622,16 @@ export default function Timers() {
         />
       )}
 
+      {saveAsForm && (
+        <ActivityFormModal
+          title="New activity"
+          initialValues={saveAsForm.initialValues}
+          tags={tags}
+          onClose={() => setSaveAsForm(null)}
+          onSave={commitSaveAsActivity}
+        />
+      )}
+
       {focusedTimer && (
         <FocusedTimer
           timer={focusedTimer}
@@ -572,6 +644,7 @@ export default function Timers() {
           onNext={() => nextSplit(focusedTimer)}
           onSeek={(sec) => seekTimer(focusedTimer, sec)}
           onEdit={() => { setFocusedId(null); openEdit(focusedTimer); }}
+          onDuplicate={() => duplicateTimer(focusedTimer.id)}
           onDelete={() => removeTimer(focusedTimer.id)}
         />
       )}
@@ -635,6 +708,7 @@ function TimerCard({
   onReset,
   onFocus,
   onEdit,
+  onDuplicate,
   onDelete,
 }) {
   const d = deriveRun(timer, run);
@@ -702,6 +776,7 @@ function TimerCard({
           <ContextMenu
             items={[
               { label: 'Edit', onClick: onEdit },
+              { label: 'Duplicate', onClick: onDuplicate },
               { label: 'Delete', danger: true, onClick: onDelete },
             ]}
           />
@@ -734,6 +809,7 @@ function FocusedTimer({
   onNext,
   onSeek,
   onEdit,
+  onDuplicate,
   onDelete,
 }) {
   const d = deriveRun(timer, run);
@@ -804,6 +880,7 @@ function FocusedTimer({
                 onClick: () => setSeeAll((v) => !v),
               },
               { label: 'Edit', onClick: onEdit },
+              { label: 'Duplicate', onClick: onDuplicate },
               { label: 'Delete', danger: true, onClick: onDelete },
             ]}
           />
@@ -1005,6 +1082,11 @@ function ActivityPickerModal({
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div style={{ fontWeight: 500 }}>{a.title}</div>
                 <div className="muted">{formatDuration(a.duration_seconds)}</div>
+                {a.tags.length > 0 && (
+                  <div className="tag-row wrap" style={{ marginTop: 4 }}>
+                    {a.tags.map((t) => <TagChip key={t.id} tag={t} />)}
+                  </div>
+                )}
               </div>
               <MdAdd aria-hidden />
             </button>

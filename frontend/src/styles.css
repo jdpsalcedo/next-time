@@ -357,27 +357,6 @@ p { color: var(--muted); }
 }
 .tag-chip.tag-chip-more:hover { color: var(--text); }
 
-.like-btn { color: var(--muted); }
-.like-btn:hover { color: var(--danger); }
-.like-btn.liked { color: var(--danger); border-color: var(--danger); }
-
-.tag-chip.liked-filter {
-  appearance: none;
-  background: transparent;
-  color: var(--muted);
-  border: 1px solid var(--border);
-  cursor: pointer;
-  font: inherit;
-  font-size: 0.8rem;
-  font-weight: 500;
-}
-.tag-chip.liked-filter:hover { color: var(--danger); }
-.tag-chip.liked-filter.selected {
-  background: var(--danger);
-  color: #fff;
-  border-color: var(--danger);
-}
-
 .activity-list { display: grid; gap: 8px; }
 
 .sortable { display: grid; gap: 6px; }
@@ -961,4 +940,44 @@ p { color: var(--muted); }
   font-size: 0.9rem;
   font-style: italic;
   fill: var(--muted);
+}
+
+.toast-stack {
+  position: fixed;
+  right: 16px;
+  bottom: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  z-index: 1000;
+  pointer-events: none;
+  max-width: calc(100vw - 32px);
+}
+@media (max-width: 600px) {
+  .toast-stack {
+    right: 12px;
+    bottom: 72px;
+  }
+}
+.toast {
+  appearance: none;
+  border: 1px solid var(--border);
+  background: var(--bg-elev-2);
+  color: var(--text);
+  padding: 10px 14px;
+  border-radius: 10px;
+  font-size: 0.92rem;
+  text-align: left;
+  cursor: pointer;
+  pointer-events: auto;
+  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.25);
+  animation: toast-in 160ms ease-out;
+  max-width: 360px;
+}
+.toast-success { border-color: var(--success); }
+.toast-error { border-color: var(--danger); }
+.toast-info { border-color: var(--accent); }
+@keyframes toast-in {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
 }

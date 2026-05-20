@@ -43,7 +43,6 @@ function hydrateActivity(a, tagsById) {
     title: a.title,
     description: a.description || '',
     duration_seconds: a.duration_seconds || 0,
-    liked: !!a.liked,
     tags: (a.tag_ids || []).map((tid) => tagsById.get(tid)).filter(Boolean).map(publicTag),
   };
 }
@@ -63,7 +62,6 @@ function hydrateTimer(timer, activitiesById, tagsById) {
           description: a.description || '',
           duration_seconds:
             typeof override === 'number' ? override : a.duration_seconds || 0,
-          liked: !!a.liked,
           tags: (a.tag_ids || [])
             .map((tid) => tagsById.get(tid))
             .filter(Boolean)
@@ -77,7 +75,6 @@ function hydrateTimer(timer, activitiesById, tagsById) {
         title: item.inline_title || '',
         description: item.inline_description || '',
         duration_seconds: item.inline_duration_seconds || 0,
-        liked: false,
         tags: [],
       };
     })
@@ -196,7 +193,6 @@ export async function createActivity({
   description = '',
   duration_seconds = 0,
   tag_ids = [],
-  liked = false,
 }) {
   const tagsById = await fetchTagsMap();
   const missing = tag_ids.filter((tid) => !tagsById.has(tid));
@@ -206,7 +202,6 @@ export async function createActivity({
     description,
     duration_seconds,
     tag_ids: [...tag_ids],
-    liked: !!liked,
     is_seed: false,
     created_at: serverTimestamp(),
   };
@@ -225,7 +220,6 @@ export async function updateActivity(id, patch) {
     if (missing.length) throw new Error(`unknown tag ids: ${missing.join(',')}`);
     update.tag_ids = [...patch.tag_ids];
   }
-  if (patch.liked !== undefined) update.liked = !!patch.liked;
   await updateDoc(userDoc('activities', id), update);
   const [actSnap, tagsById] = await Promise.all([
     getDoc(userDoc('activities', id)),
@@ -402,7 +396,6 @@ async function seedDummyData() {
       tag_ids: spec.tag_names
         .map((n) => tagByName.get(n)?.id)
         .filter(Boolean),
-      liked: false,
       is_seed: true,
       created_at: serverTimestamp(),
     };

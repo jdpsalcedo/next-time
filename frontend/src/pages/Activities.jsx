@@ -1,10 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { api, formatDuration } from '../api.js';
+import { useToast } from '../toast.jsx';
 import TagChip from '../components/TagChip.jsx';
 import Modal from '../components/Modal.jsx';
 import ContextMenu from '../components/ContextMenu.jsx';
+import ActivityFormModal from '../components/ActivityFormModal.jsx';
 import { MdAdd, MdExpandMore, MdExpandLess, MdFilterList, MdFilterListOff } from "react-icons/md";
-import { FaHeart } from "react-icons/fa6";
 
 const EMPTY_FORM = { title: '', description: '', minutes: 0, seconds: 0, tag_ids: [] };
 
@@ -18,6 +19,7 @@ const SORT_OPTIONS = [
 ];
 
 export default function Activities() {
+  const toast = useToast();
   const [activities, setActivities] = useState([]);
   const [tags, setTags] = useState([]);
   const [editing, setEditing] = useState(null);
@@ -30,7 +32,6 @@ export default function Activities() {
   const [search, setSearch] = useState('');
   const [sortBy, setSortBy] = useState('alpha-asc');
   const [selectedTagIds, setSelectedTagIds] = useState([]);
-  const [likedFilter, setLikedFilter] = useState(false);
 
   async function refresh() {
     const [a, g] = await Promise.all([api.listActivities(), api.listTags()]);
@@ -54,10 +55,6 @@ export default function Activities() {
           a.title.toLowerCase().includes(q) ||
           a.tags.some((t) => t.name.toLowerCase().includes(q))
       );
-    }
-
-    if (likedFilter) {
-      list = list.filter((a) => a.liked);
     }
 
     if (selectedTagIds.length > 0) {
@@ -100,7 +97,7 @@ export default function Activities() {
       return { grouped: true, groups: [...groups.entries()] };
     }
     return { grouped: false, items: sorted };
-  }, [activities, search, sortBy, selectedTagIds, likedFilter]);
+  }, [activities, search, sortBy, selectedTagIds]);
 
   const sortedTags = useMemo(
     () => [...tags].sort((a, b) => a.name.localeCompare(b.name)),
@@ -140,74 +137,54 @@ export default function Activities() {
     });
   }
 
-  async function saveActivity() {
-    setError('');
-    const { form } = editing;
-    const duration_seconds = Number(form.minutes) * 60 + Number(form.seconds);
-    const payload = {
-      title: form.title.trim(),
-      description: form.description.trim(),
-      duration_seconds,
-      tag_ids: form.tag_ids,
-    };
-    if (!payload.title) { setError('Title is required'); return; }
-    try {
-      if (editing.mode === 'create') await api.createActivity(payload);
-      else await api.updateActivity(editing.id, payload);
-      setEditing(null);
-      await refresh();
-    } catch (e) { setError(e.message); }
+  async function saveActivity(payload) {
+    const wasCreate = editing.mode === 'create';
+    if (wasCreate) await api.createActivity(payload);
+    else await api.updateActivity(editing.id, payload);
+    setEditing(null);
+    await refresh();
+    toast.success(wasCreate ? `Created "${payload.title}"` : `Updated "${payload.title}"`);
   }
 
   async function removeActivity(id) {
     if (!confirm('Delete this activity? Tags will not be removed.')) return;
+    const removed = activities.find((a) => a.id === id);
     try {
       await api.deleteActivity(id);
       await refresh();
-    } catch (e) { setError(e.message); }
-  }
-
-  async function toggleLike(activity) {
-    setActivities((prev) =>
-      prev.map((a) => (a.id === activity.id ? { ...a, liked: !a.liked } : a))
-    );
-    try {
-      await api.updateActivity(activity.id, { liked: !activity.liked });
+      toast.success(removed ? `Deleted "${removed.title}"` : 'Activity deleted');
     } catch (e) {
       setError(e.message);
-      await refresh();
+      toast.error(e.message);
     }
   }
 
   async function createTag() {
     setError('');
     if (!newTag.name.trim()) return;
+    const name = newTag.name.trim();
     try {
-      await api.createTag({ name: newTag.name.trim(), color: newTag.color });
+      await api.createTag({ name, color: newTag.color });
       setNewTag({ name: '', color: '#38bdf8' });
       await refresh();
-    } catch (e) { setError(e.message); }
+      toast.success(`Created tag "${name}"`);
+    } catch (e) {
+      setError(e.message);
+      toast.error(e.message);
+    }
   }
 
   async function removeTag(id) {
     if (!confirm('Delete this tag? It will be removed from any activities using it.')) return;
+    const removed = tags.find((t) => t.id === id);
     try {
       await api.deleteTag(id);
       await refresh();
-    } catch (e) { setError(e.message); }
-  }
-
-  function toggleTagInForm(tagId) {
-    setEditing((prev) => {
-      const has = prev.form.tag_ids.includes(tagId);
-      return {
-        ...prev,
-        form: {
-          ...prev.form,
-          tag_ids: has ? prev.form.tag_ids.filter((id) => id !== tagId) : [...prev.form.tag_ids, tagId],
-        },
-      };
-    });
+      toast.success(removed ? `Deleted tag "${removed.name}"` : 'Tag deleted');
+    } catch (e) {
+      setError(e.message);
+      toast.error(e.message);
+    }
   }
 
   function toggleFilterTag(id) {
@@ -239,16 +216,6 @@ export default function Activities() {
         </div>
       </div>
       <div className="tag-row">
-        <button
-          type="button"
-          className={`tag-chip liked-filter ${likedFilter ? 'selected' : ''}`}
-          onClick={() => setLikedFilter((v) => !v)}
-          aria-pressed={likedFilter}
-          title={likedFilter ? 'Show all' : 'Show only liked'}
-        >
-          <FaHeart aria-hidden />
-          Liked
-        </button>
         {orderedTags.map((t) => (
           <TagChip
             key={t.id}
@@ -273,7 +240,7 @@ export default function Activities() {
               <div className="letter-header">{letter}</div>
               <div className="list">
                 {items.map((a) => (
-                  <ActivityCard key={a.id} activity={a} onEdit={openEdit} onDelete={removeActivity} onToggleLike={toggleLike} />
+                  <ActivityCard key={a.id} activity={a} onEdit={openEdit} onDelete={removeActivity} />
                 ))}
               </div>
             </div>
@@ -282,85 +249,20 @@ export default function Activities() {
       ) : (
         <div className="list">
           {view.items.map((a) => (
-            <ActivityCard key={a.id} activity={a} onEdit={openEdit} onDelete={removeActivity} onToggleLike={toggleLike} />
+            <ActivityCard key={a.id} activity={a} onEdit={openEdit} onDelete={removeActivity} />
           ))}
         </div>
       )}
 
       {editing && (
-        <Modal
+        <ActivityFormModal
           title={editing.mode === 'create' ? 'New activity' : 'Edit activity'}
+          initialValues={editing.form}
+          tags={tags}
           onClose={() => setEditing(null)}
-        >
-          <div className="form">
-            <div>
-              <label className="label">Title</label>
-              <input
-                className="input"
-                value={editing.form.title}
-                onChange={(e) => setEditing({ ...editing, form: { ...editing.form, title: e.target.value } })}
-                autoFocus
-              />
-            </div>
-            <div>
-              <label className="label">Description</label>
-              <textarea
-                className="textarea"
-                value={editing.form.description}
-                onChange={(e) => setEditing({ ...editing, form: { ...editing.form, description: e.target.value } })}
-              />
-            </div>
-            <div className="form-row">
-              <div>
-                <label className="label">Minutes</label>
-                <input
-                  className="input"
-                  type="number"
-                  min="0"
-                  value={editing.form.minutes}
-                  onChange={(e) => setEditing({ ...editing, form: { ...editing.form, minutes: e.target.value } })}
-                />
-              </div>
-              <div>
-                <label className="label">Seconds</label>
-                <input
-                  className="input"
-                  type="number"
-                  min="0"
-                  max="59"
-                  value={editing.form.seconds}
-                  onChange={(e) => setEditing({ ...editing, form: { ...editing.form, seconds: e.target.value } })}
-                />
-              </div>
-            </div>
-            <div>
-              <label className="label">Tags</label>
-              <div className="tag-row wrap">
-                {sortedTags.map((t) => (
-                  <TagChip
-                    key={t.id}
-                    tag={t}
-                    selectable
-                    selected={editing.form.tag_ids.includes(t.id)}
-                    onClick={() => toggleTagInForm(t.id)}
-                  />
-                ))}
-                <button
-                  className="tag-chip tag-chip-more"
-                  onClick={() => setTagModal(true)}
-                  aria-label="Add tag"
-                >
-                  +
-                </button>
-              </div>
-            </div>
-            {error && <div style={{ color: 'var(--danger)' }}>{error}</div>}
-            <div className="modal-actions">
-              <button className="btn btn-ghost" onClick={() => setEditing(null)}>Cancel</button>
-              <button className="btn" onClick={saveActivity}>Save</button>
-            </div>
-          </div>
-        </Modal>
+          onSave={saveActivity}
+          onOpenTagManager={() => setTagModal(true)}
+        />
       )}
 
       {tagModal && (
@@ -408,7 +310,7 @@ export default function Activities() {
 
 const MAX_VISIBLE_CARD_TAGS = 2;
 
-function ActivityCard({ activity, onEdit, onDelete, onToggleLike }) {
+function ActivityCard({ activity, onEdit, onDelete }) {
   const [showAll, setShowAll] = useState(false);
   const total = activity.tags.length;
   const hasMore = total > MAX_VISIBLE_CARD_TAGS;
@@ -451,25 +353,13 @@ function ActivityCard({ activity, onEdit, onDelete, onToggleLike }) {
           {activity.description && <div className="muted">{activity.description}</div>}
           <div className="muted" style={{ marginTop: 4 }}>{formatDuration(activity.duration_seconds)}</div>
         </div>
-        <div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
-          <button
-            type="button"
-            className={`icon-btn like-btn ${activity.liked ? 'liked' : ''}`}
-            onClick={() => onToggleLike(activity)}
-            aria-pressed={!!activity.liked}
-            aria-label={activity.liked ? 'Unlike' : 'Like'}
-            title={activity.liked ? 'Unlike' : 'Like'}
-          >
-            <FaHeart />
-          </button>
-          <ContextMenu
-            items={[
-              { label: 'Edit', onClick: () => onEdit(activity) },
-              { label: 'Delete', danger: true, onClick: () => onDelete(activity.id) },
-            ]}
-            onOpen={focusCard}
-          />
-        </div>
+        <ContextMenu
+          items={[
+            { label: 'Edit', onClick: () => onEdit(activity) },
+            { label: 'Delete', danger: true, onClick: () => onDelete(activity.id) },
+          ]}
+          onOpen={focusCard}
+        />
       </div>
     </div>
   );

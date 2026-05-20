@@ -4,6 +4,7 @@ import Activities from './pages/Activities.jsx';
 import Timers from './pages/Timers.jsx';
 import Settings from './pages/Settings.jsx';
 import { SettingsProvider } from './settings.jsx';
+import { ToastProvider } from './toast.jsx';
 import { useAuth } from './auth.jsx';
 
 export default function App() {
@@ -25,7 +26,9 @@ export default function App() {
   }
   return (
     <SettingsProvider>
-      <AppShell />
+      <ToastProvider>
+        <AppShell />
+      </ToastProvider>
     </SettingsProvider>
   );
 }
