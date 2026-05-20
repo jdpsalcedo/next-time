@@ -4,7 +4,7 @@ Activity timer and tracker. Vite + React frontend, Firebase (Firestore + Google 
 
 ## Data model
 
-- **Activity** — `title`, `description`, `duration_seconds`, `liked`, optional tags.
+- **Activity** — `title`, `description`, `duration_seconds`, optional tags.
 - **Tag** — `name`, `color`. Survives activity deletion (only the link from the activity is removed).
 - **Timer** — `title`, `description`, plus an ordered `items[]` mixing two kinds of entries:
   - **Ref**: `{ activity_id, duration_override }` — references an Activity, optionally overriding its duration for this timer only.

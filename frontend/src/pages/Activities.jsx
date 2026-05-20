@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { api, formatDuration } from '../api.js';
 import { useToast } from '../toast.jsx';
 import TagChip from '../components/TagChip.jsx';
@@ -29,9 +30,42 @@ export default function Activities() {
 
   const [filtersOpen, setFiltersOpen] = useState(true);
   const [tagsOpen, setTagsOpen] = useState(true);
-  const [search, setSearch] = useState('');
-  const [sortBy, setSortBy] = useState('alpha-asc');
-  const [selectedTagIds, setSelectedTagIds] = useState([]);
+
+  const [searchParams, setSearchParams] = useSearchParams();
+  const search = searchParams.get('q') || '';
+  const sortBy = searchParams.get('sort') || 'alpha-asc';
+  const selectedTagIds = useMemo(() => {
+    const raw = searchParams.get('tags');
+    if (!raw) return [];
+    return raw.split(',').filter(Boolean);
+  }, [searchParams]);
+
+  function updateParams(updates, { replace = false } = {}) {
+    setSearchParams(
+      (prev) => {
+        const next = new URLSearchParams(prev);
+        for (const [k, v] of Object.entries(updates)) {
+          if (v == null || v === '') next.delete(k);
+          else next.set(k, v);
+        }
+        return next;
+      },
+      { replace },
+    );
+  }
+  const setSearch = (v) => updateParams({ q: v || null }, { replace: true });
+  const setSortBy = (v) => updateParams({ sort: v === 'alpha-asc' ? null : v });
+  function setSelectedTagIds(updater) {
+    setSearchParams((prev) => {
+      const next = new URLSearchParams(prev);
+      const raw = next.get('tags');
+      const current = raw ? raw.split(',').filter(Boolean) : [];
+      const updated = typeof updater === 'function' ? updater(current) : updater;
+      if (updated.length > 0) next.set('tags', updated.join(','));
+      else next.delete('tags');
+      return next;
+    });
+  }
 
   async function refresh() {
     const [a, g] = await Promise.all([api.listActivities(), api.listTags()]);
@@ -41,7 +75,12 @@ export default function Activities() {
 
   useEffect(() => { refresh().catch((e) => setError(e.message)); }, []);
 
+  const tagsInitializedRef = useRef(false);
   useEffect(() => {
+    if (!tagsInitializedRef.current) {
+      if (tags.length === 0) return;
+      tagsInitializedRef.current = true;
+    }
     setSelectedTagIds((prev) => prev.filter((id) => tags.some((t) => t.id === id)));
   }, [tags]);
 

@@ -5,6 +5,7 @@ import {
   doc,
   getDoc,
   getDocs,
+  onSnapshot,
   orderBy,
   query,
   serverTimestamp,
@@ -296,6 +297,44 @@ export async function updateTimer(id, patch = {}) {
 export async function deleteTimer(id) {
   await deleteDoc(userDoc('timers', id));
   return null;
+}
+
+// ---- Timer runs (wall-clock-anchored, multi-client) ----
+
+export function subscribeTimerTitles(callback) {
+  return onSnapshot(userCol('timers'), (snap) => {
+    const titles = new Map();
+    for (const d of snap.docs) {
+      titles.set(d.id, d.data().title || '');
+    }
+    callback(titles);
+  });
+}
+
+export function subscribeTimerRuns(callback) {
+  return onSnapshot(userCol('timerRuns'), (snap) => {
+    const runs = {};
+    for (const d of snap.docs) {
+      const data = d.data();
+      runs[d.id] = {
+        isPlaying: !!data.isPlaying,
+        anchorAt: typeof data.anchorAt === 'number' ? data.anchorAt : null,
+        pausedTotalElapsedSec:
+          typeof data.pausedTotalElapsedSec === 'number'
+            ? data.pausedTotalElapsedSec
+            : 0,
+      };
+    }
+    callback(runs);
+  });
+}
+
+export async function setTimerRun(timerId, patch) {
+  await setDoc(userDoc('timerRuns', timerId), patch, { merge: true });
+}
+
+export async function deleteTimerRun(timerId) {
+  await deleteDoc(userDoc('timerRuns', timerId));
 }
 
 // ---- Settings ----

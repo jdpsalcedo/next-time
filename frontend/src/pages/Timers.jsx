@@ -1,5 +1,15 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { api, formatDuration } from '../api.js';
+import {
+  useTimerRuns,
+  deriveRun,
+  togglePlayTimer,
+  resetTimerRun,
+  prevSplitTimer,
+  nextSplitTimer,
+  seekTimerTotal,
+} from '../timerRuns.js';
 import { useToast } from '../toast.jsx';
 import Modal from '../components/Modal.jsx';
 import ContextMenu from '../components/ContextMenu.jsx';
@@ -16,6 +26,8 @@ import {
   MdCenterFocusStrong,
   MdSkipPrevious,
   MdSkipNext,
+  MdSearch,
+  MdClose,
 } from 'react-icons/md';
 
 function pad(n) {
@@ -72,27 +84,6 @@ function captionDuration(secs) {
   return `${m}:${pad(s)}`;
 }
 
-function deriveRun(timer, run) {
-  const splits = timer.activities;
-  const total = totalOf(timer);
-  if (splits.length === 0) {
-    return { state: 'idle', index: 0, splitElapsed: 0, totalElapsed: 0, totalRemaining: 0, total };
-  }
-  if (!run) {
-    return { state: 'idle', index: 0, splitElapsed: 0, totalElapsed: 0, totalRemaining: total, total };
-  }
-  const idx = Math.min(run.index, splits.length - 1);
-  let cumBefore = 0;
-  for (let i = 0; i < idx; i++) cumBefore += splits[i].duration_seconds;
-  const totalElapsed = cumBefore + run.splitElapsedSec;
-  const totalRemaining = total - totalElapsed;
-  let state;
-  if (totalRemaining < 0) state = 'overtime';
-  else if (run.isPlaying) state = 'running';
-  else state = 'paused';
-  return { state, index: idx, splitElapsed: run.splitElapsedSec, totalElapsed, totalRemaining, total };
-}
-
 export default function Timers() {
   const { settings } = useSettings();
   const reverse = !!settings.reverse_countdown;
@@ -105,14 +96,45 @@ export default function Timers() {
   const [error, setError] = useState('');
   const [saveAsForm, setSaveAsForm] = useState(null);
 
-  const [runStates, setRunStates] = useState({});
-  const [focusedId, setFocusedId] = useState(null);
+  const runs = useTimerRuns();
   const [expandedId, setExpandedId] = useState(null);
   const [customForm, setCustomForm] = useState(null);
   const [pickerOpen, setPickerOpen] = useState(false);
+  const [, setRenderTick] = useState(0);
 
-  const timersRef = useRef(timers);
-  useEffect(() => { timersRef.current = timers; }, [timers]);
+  const [searchParams, setSearchParams] = useSearchParams();
+  const search = searchParams.get('q') || '';
+  const [searchOpen, setSearchOpen] = useState(search !== '');
+  useEffect(() => {
+    if (search && !searchOpen) setSearchOpen(true);
+  }, [search]);
+  function setSearch(value) {
+    setSearchParams(
+      (prev) => {
+        const next = new URLSearchParams(prev);
+        if (value) next.set('q', value);
+        else next.delete('q');
+        return next;
+      },
+      { replace: true },
+    );
+  }
+  function toggleSearch() {
+    setSearchOpen((open) => {
+      if (open && search) setSearch('');
+      return !open;
+    });
+  }
+
+  const focusedId = searchParams.get('focus') || null;
+  function setFocusedId(id) {
+    setSearchParams((prev) => {
+      const next = new URLSearchParams(prev);
+      if (id) next.set('focus', String(id));
+      else next.delete('focus');
+      return next;
+    });
+  }
 
   async function refresh() {
     const [t, a, g] = await Promise.all([api.listTimers(), api.listActivities(), api.listTags()]);
@@ -129,85 +151,32 @@ export default function Timers() {
 
   useEffect(() => { refresh().catch((e) => setError(e.message)); }, []);
 
+  const anyPlaying = Object.values(runs).some((r) => r.isPlaying);
   useEffect(() => {
+    if (!anyPlaying) return;
     let rafId;
-    let last = performance.now();
-    function tick(now) {
-      const dt = (now - last) / 1000;
-      last = now;
-      setRunStates((prev) => {
-        let changed = false;
-        const next = { ...prev };
-        for (const id in prev) {
-          const s = prev[id];
-          if (!s.isPlaying) continue;
-          const timer = timersRef.current.find((t) => String(t.id) === id);
-          if (!timer || timer.activities.length === 0) continue;
-          let index = s.index;
-          let elapsed = s.splitElapsedSec + dt;
-          const splits = timer.activities;
-          while (index < splits.length - 1 && elapsed >= splits[index].duration_seconds) {
-            elapsed -= splits[index].duration_seconds;
-            index += 1;
-          }
-          next[id] = { ...s, index, splitElapsedSec: elapsed };
-          changed = true;
-        }
-        return changed ? next : prev;
-      });
+    function tick() {
+      setRenderTick((n) => (n + 1) & 0xffff);
       rafId = requestAnimationFrame(tick);
     }
     rafId = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(rafId);
-  }, []);
-
-  function setRun(timerId, mut) {
-    setRunStates((prev) => {
-      const cur = prev[timerId] || { index: 0, splitElapsedSec: 0, isPlaying: false };
-      const updated = typeof mut === 'function' ? mut(cur) : { ...cur, ...mut };
-      return { ...prev, [timerId]: updated };
-    });
-  }
+  }, [anyPlaying]);
 
   function togglePlay(timer) {
-    if (timer.activities.length === 0) return;
-    setRun(timer.id, (cur) => ({ ...cur, isPlaying: !cur.isPlaying }));
+    return togglePlayTimer(timer, runs[timer.id]);
   }
-
   function resetRun(timerId) {
-    setRunStates((prev) => {
-      const next = { ...prev };
-      delete next[timerId];
-      return next;
-    });
+    return resetTimerRun(timerId);
   }
-
   function prevSplit(timer) {
-    setRun(timer.id, (cur) => {
-      if (cur.splitElapsedSec > 1.2 || cur.index === 0) {
-        return { ...cur, splitElapsedSec: 0 };
-      }
-      return { ...cur, index: cur.index - 1, splitElapsedSec: 0 };
-    });
+    return prevSplitTimer(timer, runs[timer.id]);
   }
-
   function nextSplit(timer) {
-    setRun(timer.id, (cur) => {
-      const last = timer.activities.length - 1;
-      if (cur.index >= last) return { ...cur, splitElapsedSec: timer.activities[last]?.duration_seconds ?? 0 };
-      return { ...cur, index: cur.index + 1, splitElapsedSec: 0 };
-    });
+    return nextSplitTimer(timer, runs[timer.id]);
   }
-
   function seekTimer(timer, totalElapsedSec) {
-    let remaining = Math.max(0, totalElapsedSec);
-    let index = 0;
-    for (; index < timer.activities.length - 1; index++) {
-      const dur = timer.activities[index].duration_seconds;
-      if (remaining < dur) break;
-      remaining -= dur;
-    }
-    setRun(timer.id, (cur) => ({ ...cur, index, splitElapsedSec: remaining }));
+    return seekTimerTotal(timer, runs[timer.id], totalElapsedSec);
   }
 
   function openCreate() {
@@ -495,14 +464,56 @@ export default function Timers() {
 
   const focusedTimer = focusedId == null ? null : timers.find((t) => t.id === focusedId);
 
+  const filteredTimers = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    const matches = !q
+      ? timers
+      : timers.filter((t) => {
+          if (t.title.toLowerCase().includes(q)) return true;
+          if ((t.description || '').toLowerCase().includes(q)) return true;
+          return t.activities.some((a) => {
+            if ((a.title || '').toLowerCase().includes(q)) return true;
+            return (a.tags || []).some((tg) => tg.name.toLowerCase().includes(q));
+          });
+        });
+    const active = [];
+    const inactive = [];
+    for (const t of matches) {
+      if (runs[t.id]?.isPlaying) active.push(t);
+      else inactive.push(t);
+    }
+    return [...active, ...inactive];
+  }, [timers, search, runs]);
+
   return (
     <div>
       <div className="section-header">
         <h1>Timers</h1>
-        <button className="icon-btn" onClick={openCreate} aria-label="New timer">
-          <MdAdd />
-        </button>
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+          <button
+            className={`icon-btn ${search ? 'has-dot' : ''}`}
+            onClick={toggleSearch}
+            aria-label={searchOpen ? 'Hide search' : 'Search timers'}
+            aria-pressed={searchOpen}
+          >
+            {searchOpen ? <MdClose /> : <MdSearch />}
+          </button>
+          <button className="icon-btn" onClick={openCreate} aria-label="New timer">
+            <MdAdd />
+          </button>
+        </div>
       </div>
+
+      {searchOpen && (
+        <input
+          className="input input-search"
+          placeholder="Search timers by title, description, activity, or tag..."
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          autoFocus
+          style={{ marginBottom: 12 }}
+        />
+      )}
 
       {error && <div className="card" style={{ borderColor: 'var(--danger)', marginBottom: 12 }}>{error}</div>}
 
@@ -510,13 +521,15 @@ export default function Timers() {
         <div className="card empty">
           No timers yet. Build one to chain activities together.
         </div>
+      ) : filteredTimers.length === 0 ? (
+        <div className="card empty">No timers match your search.</div>
       ) : (
         <div className="list">
-          {timers.map((t) => (
+          {filteredTimers.map((t) => (
             <TimerCard
               key={t.id}
               timer={t}
-              run={runStates[t.id]}
+              run={runs[t.id]}
               reverse={reverse}
               expanded={expandedId === t.id}
               onToggleExpand={() =>
@@ -635,7 +648,7 @@ export default function Timers() {
       {focusedTimer && (
         <FocusedTimer
           timer={focusedTimer}
-          run={runStates[focusedTimer.id]}
+          run={runs[focusedTimer.id]}
           reverse={reverse}
           onClose={() => setFocusedId(null)}
           onTogglePlay={() => togglePlay(focusedTimer)}
@@ -752,9 +765,9 @@ function TimerCard({
             className="icon-btn timer-play-btn"
             onClick={onTogglePlay}
             disabled={empty}
-            aria-label={d.state === 'running' ? 'Pause' : 'Play'}
+            aria-label={run?.isPlaying ? 'Pause' : 'Play'}
           >
-            {d.state === 'running' ? <MdPause /> : <MdPlayArrow />}
+            {run?.isPlaying ? <MdPause /> : <MdPlayArrow />}
           </button>
           <button
             type="button"
@@ -843,9 +856,9 @@ function FocusedTimer({
         className="icon-btn timer-play-btn"
         onClick={onTogglePlay}
         disabled={splits.length === 0}
-        aria-label={d.state === 'running' ? 'Pause' : 'Play'}
+        aria-label={run?.isPlaying ? 'Pause' : 'Play'}
       >
-        {d.state === 'running' ? <MdPause /> : <MdPlayArrow />}
+        {run?.isPlaying ? <MdPause /> : <MdPlayArrow />}
       </button>
       <button
         type="button"
