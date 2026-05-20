@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { api, formatDuration } from '../api.js';
+import { smoothUpdate } from '../viewTransition.js';
 import {
   useTimerRuns,
   deriveRun,
@@ -17,6 +18,8 @@ import SortableActivityList from '../components/SortableActivityList.jsx';
 import TagChip from '../components/TagChip.jsx';
 import TimerDial from '../components/TimerDial.jsx';
 import ActivityFormModal from '../components/ActivityFormModal.jsx';
+import FilterPanel from '../components/FilterPanel.jsx';
+import { createTimerEvent, todayString } from '../timerEvents.js';
 import { useSettings } from '../settings.jsx';
 import {
   MdAdd,
@@ -26,8 +29,8 @@ import {
   MdCenterFocusStrong,
   MdSkipPrevious,
   MdSkipNext,
-  MdSearch,
-  MdClose,
+  MdFilterList,
+  MdFilterListOff,
 } from 'react-icons/md';
 
 function pad(n) {
@@ -72,6 +75,20 @@ function formatLongDuration(secs) {
   return parts.join(' ');
 }
 
+function uniqueTagsForTimer(activities) {
+  const seen = new Set();
+  const tags = [];
+  for (const a of activities) {
+    for (const t of (a.tags || [])) {
+      if (!seen.has(t.id)) {
+        seen.add(t.id);
+        tags.push(t);
+      }
+    }
+  }
+  return tags;
+}
+
 function captionDuration(secs) {
   if (secs === 0) return '0 min';
   if (secs % 60 === 0) {
@@ -100,14 +117,17 @@ export default function Timers() {
   const [expandedId, setExpandedId] = useState(null);
   const [customForm, setCustomForm] = useState(null);
   const [pickerOpen, setPickerOpen] = useState(false);
+  const [addToCalendarTimer, setAddToCalendarTimer] = useState(null);
   const [, setRenderTick] = useState(0);
 
   const [searchParams, setSearchParams] = useSearchParams();
   const search = searchParams.get('q') || '';
-  const [searchOpen, setSearchOpen] = useState(search !== '');
-  useEffect(() => {
-    if (search && !searchOpen) setSearchOpen(true);
-  }, [search]);
+  const selectedTagIds = useMemo(() => {
+    const raw = searchParams.get('tags');
+    return raw ? raw.split(',').filter(Boolean) : [];
+  }, [searchParams]);
+  const filtersActive = search.trim() !== '' || selectedTagIds.length > 0;
+  const [filtersOpen, setFiltersOpen] = useState(filtersActive);
   function setSearch(value) {
     setSearchParams(
       (prev) => {
@@ -119,20 +139,35 @@ export default function Timers() {
       { replace: true },
     );
   }
-  function toggleSearch() {
-    setSearchOpen((open) => {
-      if (open && search) setSearch('');
-      return !open;
+  function setSelectedTagIds(updater) {
+    setSearchParams((prev) => {
+      const next = new URLSearchParams(prev);
+      const raw = next.get('tags');
+      const current = raw ? raw.split(',').filter(Boolean) : [];
+      const updated = typeof updater === 'function' ? updater(current) : updater;
+      if (updated.length > 0) next.set('tags', updated.join(','));
+      else next.delete('tags');
+      return next;
     });
+  }
+  function toggleFilterTag(id) {
+    setSelectedTagIds((prev) =>
+      prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id],
+    );
+  }
+  function toggleFilters() {
+    setFiltersOpen((open) => !open);
   }
 
   const focusedId = searchParams.get('focus') || null;
   function setFocusedId(id) {
-    setSearchParams((prev) => {
-      const next = new URLSearchParams(prev);
-      if (id) next.set('focus', String(id));
-      else next.delete('focus');
-      return next;
+    smoothUpdate(() => {
+      setSearchParams((prev) => {
+        const next = new URLSearchParams(prev);
+        if (id) next.set('focus', String(id));
+        else next.delete('focus');
+        return next;
+      });
     });
   }
 
@@ -464,18 +499,48 @@ export default function Timers() {
 
   const focusedTimer = focusedId == null ? null : timers.find((t) => t.id === focusedId);
 
+  const availableTimerTags = useMemo(() => {
+    const map = new Map();
+    for (const t of timers) {
+      for (const a of t.activities) {
+        for (const tag of a.tags || []) {
+          if (!map.has(tag.id)) map.set(tag.id, tag);
+        }
+      }
+    }
+    const selectedSet = new Set(selectedTagIds);
+    const arr = [...map.values()];
+    arr.sort((a, b) => {
+      const aSel = selectedSet.has(a.id);
+      const bSel = selectedSet.has(b.id);
+      if (aSel !== bSel) return aSel ? -1 : 1;
+      return a.name.localeCompare(b.name);
+    });
+    return arr;
+  }, [timers, selectedTagIds]);
+
   const filteredTimers = useMemo(() => {
     const q = search.trim().toLowerCase();
-    const matches = !q
-      ? timers
-      : timers.filter((t) => {
-          if (t.title.toLowerCase().includes(q)) return true;
-          if ((t.description || '').toLowerCase().includes(q)) return true;
-          return t.activities.some((a) => {
-            if ((a.title || '').toLowerCase().includes(q)) return true;
-            return (a.tags || []).some((tg) => tg.name.toLowerCase().includes(q));
-          });
-        });
+    const matches = timers.filter((t) => {
+      if (q) {
+        const qMatch =
+          t.title.toLowerCase().includes(q) ||
+          (t.description || '').toLowerCase().includes(q) ||
+          t.activities.some(
+            (a) =>
+              (a.title || '').toLowerCase().includes(q) ||
+              (a.tags || []).some((tg) => tg.name.toLowerCase().includes(q)),
+          );
+        if (!qMatch) return false;
+      }
+      if (selectedTagIds.length > 0) {
+        const tagMatch = t.activities.some((a) =>
+          (a.tags || []).some((tg) => selectedTagIds.includes(tg.id)),
+        );
+        if (!tagMatch) return false;
+      }
+      return true;
+    });
     const active = [];
     const inactive = [];
     for (const t of matches) {
@@ -483,7 +548,7 @@ export default function Timers() {
       else inactive.push(t);
     }
     return [...active, ...inactive];
-  }, [timers, search, runs]);
+  }, [timers, search, selectedTagIds, runs]);
 
   return (
     <div>
@@ -491,12 +556,13 @@ export default function Timers() {
         <h1>Timers</h1>
         <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
           <button
-            className={`icon-btn ${search ? 'has-dot' : ''}`}
-            onClick={toggleSearch}
-            aria-label={searchOpen ? 'Hide search' : 'Search timers'}
-            aria-pressed={searchOpen}
+            className={`icon-btn ${filtersActive ? 'has-dot' : ''}`}
+            onClick={toggleFilters}
+            aria-label={filtersOpen ? 'Hide filters' : 'Show filters'}
+            aria-pressed={filtersOpen}
+            title={filtersOpen ? 'Hide filters' : 'Show filters'}
           >
-            {searchOpen ? <MdClose /> : <MdSearch />}
+            {filtersOpen ? <MdFilterList /> : <MdFilterListOff />}
           </button>
           <button className="icon-btn" onClick={openCreate} aria-label="New timer">
             <MdAdd />
@@ -504,14 +570,14 @@ export default function Timers() {
         </div>
       </div>
 
-      {searchOpen && (
-        <input
-          className="input input-search"
-          placeholder="Search timers by title, description, activity, or tag..."
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          autoFocus
-          style={{ marginBottom: 12 }}
+      {filtersOpen && (
+        <FilterPanel
+          search={search}
+          onSearchChange={setSearch}
+          searchPlaceholder="Search timers by title, description, activity, or tag…"
+          tags={availableTimerTags}
+          selectedTagIds={selectedTagIds}
+          onToggleTag={toggleFilterTag}
         />
       )}
 
@@ -533,7 +599,7 @@ export default function Timers() {
               reverse={reverse}
               expanded={expandedId === t.id}
               onToggleExpand={() =>
-                setExpandedId((prev) => (prev === t.id ? null : t.id))
+                smoothUpdate(() => setExpandedId((prev) => (prev === t.id ? null : t.id)))
               }
               onTogglePlay={() => togglePlay(t)}
               onReset={() => resetRun(t.id)}
@@ -541,6 +607,7 @@ export default function Timers() {
               onEdit={() => openEdit(t)}
               onDuplicate={() => duplicateTimer(t.id)}
               onDelete={() => removeTimer(t.id)}
+              onAddToCalendar={() => setAddToCalendarTimer(t)}
             />
           ))}
         </div>
@@ -558,6 +625,15 @@ export default function Timers() {
               selectedActivities.reduce((s, a) => s + (a.duration_seconds || 0), 0)
             )}
           </div>
+          {(() => {
+            const headerTags = uniqueTagsForTimer(selectedActivities);
+            if (headerTags.length === 0) return null;
+            return (
+              <div className="tag-row wrap" style={{ marginTop: -4, marginBottom: 14 }}>
+                {headerTags.map((t) => <TagChip key={t.id} tag={t} />)}
+              </div>
+            );
+          })()}
           <div className="form">
             <div>
               <label className="label">Title</label>
@@ -618,7 +694,7 @@ export default function Timers() {
             {error && <div style={{ color: 'var(--danger)' }}>{error}</div>}
             <div className="modal-actions">
               <button className="btn btn-ghost" onClick={() => setEditing(null)}>Cancel</button>
-              <button className="btn" onClick={saveTimer}>Save</button>
+              <button className="btn" onClick={() => saveTimer()}>Save</button>
             </div>
           </div>
         </Modal>
@@ -659,9 +735,95 @@ export default function Timers() {
           onEdit={() => { setFocusedId(null); openEdit(focusedTimer); }}
           onDuplicate={() => duplicateTimer(focusedTimer.id)}
           onDelete={() => removeTimer(focusedTimer.id)}
+          onAddToCalendar={() => setAddToCalendarTimer(focusedTimer)}
+        />
+      )}
+
+      {addToCalendarTimer && (
+        <AddToCalendarModal
+          timer={addToCalendarTimer}
+          onClose={() => setAddToCalendarTimer(null)}
+          onSaved={(date) => {
+            toast.success(`Added to ${date}`);
+            setAddToCalendarTimer(null);
+          }}
+          onError={(msg) => toast.error(msg)}
         />
       )}
     </div>
+  );
+}
+
+function AddToCalendarModal({ timer, onClose, onSaved, onError }) {
+  const [form, setForm] = useState(() => ({
+    date: todayString(),
+    scheduledAt: '',
+    notes: '',
+  }));
+  const [busy, setBusy] = useState(false);
+
+  async function submit(e) {
+    e.preventDefault();
+    if (!form.date) return;
+    setBusy(true);
+    try {
+      await createTimerEvent({
+        timerId: timer.id,
+        date: form.date,
+        scheduledAt: form.scheduledAt || null,
+        notes: form.notes || '',
+      });
+      onSaved(form.date);
+    } catch (err) {
+      onError(err.message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <Modal title={`Add to calendar`} onClose={onClose}>
+      <div className="modal-subtitle">{timer.title}</div>
+      <form className="form" onSubmit={submit}>
+        <div>
+          <label className="label">Date</label>
+          <input
+            className="input"
+            type="date"
+            value={form.date}
+            onChange={(e) => setForm({ ...form, date: e.target.value })}
+            required
+            autoFocus
+          />
+        </div>
+        <div>
+          <label className="label">Time (optional)</label>
+          <input
+            className="input"
+            type="time"
+            value={form.scheduledAt}
+            onChange={(e) => setForm({ ...form, scheduledAt: e.target.value })}
+          />
+        </div>
+        <div>
+          <label className="label">Notes (optional)</label>
+          <input
+            className="input"
+            value={form.notes}
+            onChange={(e) => setForm({ ...form, notes: e.target.value })}
+            placeholder="…"
+          />
+        </div>
+        <div className="modal-actions">
+          <button type="button" className="btn btn-ghost" onClick={onClose} disabled={busy}>
+            Cancel
+          </button>
+          <button type="submit" className="btn" disabled={busy || !form.date}>
+            {busy ? 'Adding…' : 'Add'}
+          </button>
+        </div>
+      </form>
+    </Modal>
   );
 }
 
@@ -723,9 +885,11 @@ function TimerCard({
   onEdit,
   onDuplicate,
   onDelete,
+  onAddToCalendar,
 }) {
   const d = deriveRun(timer, run);
   const empty = timer.activities.length === 0;
+  const timerTags = useMemo(() => uniqueTagsForTimer(timer.activities), [timer.activities]);
   const displayTime = reverse
     ? d.totalElapsed
     : d.state === 'overtime'
@@ -790,11 +954,17 @@ function TimerCard({
             items={[
               { label: 'Edit', onClick: onEdit },
               { label: 'Duplicate', onClick: onDuplicate },
+              { label: 'Add to calendar', onClick: onAddToCalendar },
               { label: 'Delete', danger: true, onClick: onDelete },
             ]}
           />
         </div>
       </div>
+      {expanded && timerTags.length > 0 && (
+        <div className="timer-card-tags tag-row wrap">
+          {timerTags.map((t) => <TagChip key={t.id} tag={t} />)}
+        </div>
+      )}
       <div className="timer-card-time">{formatRich(displayTime)}</div>
       <div className="timer-card-caption">{caption}</div>
       {!empty && (
@@ -824,6 +994,7 @@ function FocusedTimer({
   onEdit,
   onDuplicate,
   onDelete,
+  onAddToCalendar,
 }) {
   const d = deriveRun(timer, run);
   const splits = timer.activities;
@@ -890,10 +1061,11 @@ function FocusedTimer({
             items={[
               {
                 label: seeAll ? 'Show dial' : 'See all splits',
-                onClick: () => setSeeAll((v) => !v),
+                onClick: () => smoothUpdate(() => setSeeAll((v) => !v)),
               },
               { label: 'Edit', onClick: onEdit },
               { label: 'Duplicate', onClick: onDuplicate },
+              { label: 'Add to calendar', onClick: onAddToCalendar },
               { label: 'Delete', danger: true, onClick: onDelete },
             ]}
           />

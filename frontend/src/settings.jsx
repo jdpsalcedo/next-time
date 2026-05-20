@@ -5,8 +5,9 @@ const STORAGE_KEY = 'next-time.settings';
 
 const DEFAULTS = {
   dark_mode: false,
-  reverse_countdown: false,
+  reverse_countdown: true,
   dummy_data: false,
+  accent_color: '#38bdf8',
 };
 
 function readCache() {
@@ -49,6 +50,15 @@ export function SettingsProvider({ children }) {
     const root = document.documentElement;
     root.setAttribute('data-theme', settings.dark_mode ? 'dark' : 'light');
   }, [settings.dark_mode]);
+
+  useEffect(() => {
+    const root = document.documentElement;
+    if (settings.accent_color) {
+      root.style.setProperty('--accent', settings.accent_color);
+    } else {
+      root.style.removeProperty('--accent');
+    }
+  }, [settings.accent_color]);
 
   const update = useCallback(async (patch) => {
     const optimistic = { ...settings, ...patch };

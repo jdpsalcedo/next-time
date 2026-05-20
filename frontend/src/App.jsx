@@ -1,15 +1,18 @@
 import { useState } from 'react';
 import { NavLink, Route, Routes, Navigate, useLocation, useNavigate } from 'react-router-dom';
 import { MdSearch, MdPlayArrow, MdExpandLess, MdExpandMore } from 'react-icons/md';
+import { HiHome, HiClipboardList, HiClock, HiCalendar, HiCog } from 'react-icons/hi';
 import Home from './pages/Home.jsx';
 import Activities from './pages/Activities.jsx';
 import Timers from './pages/Timers.jsx';
+import Calendar from './pages/Calendar.jsx';
 import Settings from './pages/Settings.jsx';
 import UniversalSearch from './components/UniversalSearch.jsx';
 import { useActiveTimers } from './timerRuns.js';
 import { SettingsProvider } from './settings.jsx';
 import { ToastProvider } from './toast.jsx';
 import { useAuth } from './auth.jsx';
+import { UIProvider, useUI } from './ui.jsx';
 
 export default function App() {
   const { user, loading, signIn } = useAuth();
@@ -31,7 +34,9 @@ export default function App() {
   return (
     <SettingsProvider>
       <ToastProvider>
-        <AppShell />
+        <UIProvider>
+          <AppShell />
+        </UIProvider>
       </ToastProvider>
     </SettingsProvider>
   );
@@ -40,7 +45,7 @@ export default function App() {
 const IS_STATIC = import.meta.env.VITE_STATIC_MODE === 'true';
 
 function AppShell() {
-  const [searchOpen, setSearchOpen] = useState(false);
+  const { searchOpen, openSearch, closeSearch } = useUI();
   const activeTimers = useActiveTimers();
   const hasActive = activeTimers.length > 0;
   const location = useLocation();
@@ -71,24 +76,26 @@ function AppShell() {
             >
               Timers
             </NavLink>
+            <NavLink to="/calendar" className="tab">Calendar</NavLink>
             <NavLink to="/settings" className="tab">Settings</NavLink>
           </nav>
           <button
             className="icon-btn"
-            onClick={() => setSearchOpen(true)}
+            onClick={openSearch}
             aria-label="Search"
           >
             <MdSearch />
           </button>
         </div>
       </header>
-      {searchOpen && <UniversalSearch onClose={() => setSearchOpen(false)} />}
+      {searchOpen && <UniversalSearch onClose={closeSearch} />}
       <main className="main">
         <div className="page-enter" key={location.pathname}>
           <Routes>
             <Route path="/" element={<Home />} />
             <Route path="/activities" element={<Activities />} />
             <Route path="/timers" element={<Timers />} />
+            <Route path="/calendar" element={<Calendar />} />
             <Route path="/settings" element={<Settings />} />
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
@@ -96,11 +103,11 @@ function AppShell() {
       </main>
       <nav className="bottomnav" aria-label="Primary mobile">
         <NavLink to="/" end className="bottomtab">
-          <span className="bticon" aria-hidden>⌂</span>
+          <span className="bticon" aria-hidden><HiHome /></span>
           <span>Home</span>
         </NavLink>
         <NavLink to="/activities" className="bottomtab">
-          <span className="bticon" aria-hidden>≡</span>
+          <span className="bticon" aria-hidden><HiClipboardList /></span>
           <span>Activities</span>
         </NavLink>
         <NavLink
@@ -109,11 +116,15 @@ function AppShell() {
             `bottomtab ${hasActive ? 'bottomtab-timer-running' : ''} ${isActive ? 'active' : ''}`
           }
         >
-          <span className="bticon" aria-hidden>◷</span>
+          <span className="bticon" aria-hidden><HiClock /></span>
           <span>Timers</span>
         </NavLink>
+        <NavLink to="/calendar" className="bottomtab">
+          <span className="bticon" aria-hidden><HiCalendar /></span>
+          <span>Calendar</span>
+        </NavLink>
         <NavLink to="/settings" className="bottomtab">
-          <span className="bticon" aria-hidden>⚙</span>
+          <span className="bticon" aria-hidden><HiCog /></span>
           <span>Settings</span>
         </NavLink>
       </nav>

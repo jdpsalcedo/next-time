@@ -337,12 +337,63 @@ export async function deleteTimerRun(timerId) {
   await deleteDoc(userDoc('timerRuns', timerId));
 }
 
+// ---- Timer events (calendar — timers tagged with a date) ----
+
+function hydrateTimerEvent(id, data) {
+  return {
+    id,
+    timerId: data.timerId,
+    date: data.date,
+    scheduledAt: typeof data.scheduledAt === 'string' ? data.scheduledAt : null,
+    notes: data.notes || '',
+    createdAt: typeof data.createdAt === 'number' ? data.createdAt : 0,
+  };
+}
+
+export function subscribeTimerEvents({ from, to }, callback) {
+  const q = query(
+    userCol('timerEvents'),
+    where('date', '>=', from),
+    where('date', '<=', to),
+  );
+  return onSnapshot(q, (snap) => {
+    const events = snap.docs.map((d) => hydrateTimerEvent(d.id, d.data()));
+    callback(events);
+  });
+}
+
+export async function createTimerEvent({ timerId, date, scheduledAt = null, notes = '' }) {
+  const data = {
+    timerId,
+    date,
+    scheduledAt: scheduledAt || null,
+    notes: notes || '',
+    createdAt: Date.now(),
+  };
+  const ref = await addDoc(userCol('timerEvents'), data);
+  return hydrateTimerEvent(ref.id, data);
+}
+
+export async function updateTimerEvent(id, patch) {
+  const update = {};
+  if (patch.timerId !== undefined) update.timerId = patch.timerId;
+  if (patch.date !== undefined) update.date = patch.date;
+  if (patch.scheduledAt !== undefined) update.scheduledAt = patch.scheduledAt || null;
+  if (patch.notes !== undefined) update.notes = patch.notes || '';
+  await setDoc(userDoc('timerEvents', id), update, { merge: true });
+}
+
+export async function deleteTimerEvent(id) {
+  await deleteDoc(userDoc('timerEvents', id));
+}
+
 // ---- Settings ----
 
 const SETTINGS_DEFAULTS = {
   dark_mode: false,
   reverse_countdown: false,
   dummy_data: false,
+  accent_color: '#38bdf8',
 };
 
 export async function getSettings() {

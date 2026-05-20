@@ -1,12 +1,22 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { api, formatDuration } from '../api.js';
+import { smoothUpdate } from '../viewTransition.js';
 import { useToast } from '../toast.jsx';
 import TagChip from '../components/TagChip.jsx';
 import Modal from '../components/Modal.jsx';
 import ContextMenu from '../components/ContextMenu.jsx';
 import ActivityFormModal from '../components/ActivityFormModal.jsx';
+import ColorSwatchPicker from '../components/ColorSwatchPicker.jsx';
+import FilterPanel from '../components/FilterPanel.jsx';
+import { getRecentTagColors, recordRecentTagColor } from '../recentColors.js';
 import { MdAdd, MdExpandMore, MdExpandLess, MdFilterList, MdFilterListOff } from "react-icons/md";
+
+const TAG_COLOR_PRESETS = [
+  '#ef4444', '#f97316', '#f59e0b', '#eab308',
+  '#22c55e', '#14b8a6', '#38bdf8', '#6366f1',
+  '#a855f7', '#ec4899',
+];
 
 const EMPTY_FORM = { title: '', description: '', minutes: 0, seconds: 0, tag_ids: [] };
 
@@ -26,12 +36,17 @@ export default function Activities() {
   const [editing, setEditing] = useState(null);
   const [tagModal, setTagModal] = useState(false);
   const [newTag, setNewTag] = useState({ name: '', color: '#38bdf8' });
+  const [recentColors, setRecentColors] = useState(() => getRecentTagColors());
   const [error, setError] = useState('');
 
-  const [filtersOpen, setFiltersOpen] = useState(true);
   const [tagsOpen, setTagsOpen] = useState(true);
 
   const [searchParams, setSearchParams] = useSearchParams();
+  const [filtersOpen, setFiltersOpen] = useState(() => {
+    const q = searchParams.get('q') || '';
+    const tagsParam = searchParams.get('tags') || '';
+    return q !== '' || tagsParam !== '';
+  });
   const search = searchParams.get('q') || '';
   const sortBy = searchParams.get('sort') || 'alpha-asc';
   const selectedTagIds = useMemo(() => {
@@ -202,8 +217,11 @@ export default function Activities() {
     setError('');
     if (!newTag.name.trim()) return;
     const name = newTag.name.trim();
+    const usedColor = newTag.color;
     try {
-      await api.createTag({ name, color: newTag.color });
+      await api.createTag({ name, color: usedColor });
+      recordRecentTagColor(usedColor);
+      setRecentColors(getRecentTagColors());
       setNewTag({ name: '', color: '#38bdf8' });
       await refresh();
       toast.success(`Created tag "${name}"`);
@@ -235,14 +253,9 @@ export default function Activities() {
   return (
     <div>
       <div className="section-header">
-        <input
-              className="input input-search"
-              placeholder="Search activities by name or tag..."
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-            />
+        <h1>Activities</h1>
         <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-          {/* <button
+          <button
             className={`icon-btn ${filtersActive ? 'has-dot' : ''}`}
             aria-label={filtersOpen ? 'Hide filters' : 'Show filters'}
             aria-pressed={filtersOpen}
@@ -250,21 +263,27 @@ export default function Activities() {
             title={filtersOpen ? 'Hide filters' : 'Show filters'}
           >
             {filtersOpen ? <MdFilterList /> : <MdFilterListOff />}
-          </button> */}
-          <button className="icon-btn" onClick={openCreate}><MdAdd/></button>
+          </button>
+          <ContextMenu
+            icon={<MdAdd size={20} aria-hidden />}
+            label="Add"
+            items={[
+              { label: 'New activity', onClick: openCreate },
+              { label: 'New tag', onClick: () => setTagModal(true) },
+            ]}
+          />
         </div>
       </div>
-      <div className="tag-row">
-        {orderedTags.map((t) => (
-          <TagChip
-            key={t.id}
-            tag={t}
-            selectable
-            selected={selectedTagIds.includes(t.id)}
-            onClick={() => toggleFilterTag(t.id)}
-          />
-        ))}
-      </div>
+      {filtersOpen && (
+        <FilterPanel
+          search={search}
+          onSearchChange={setSearch}
+          searchPlaceholder="Search activities by name or tag…"
+          tags={orderedTags}
+          selectedTagIds={selectedTagIds}
+          onToggleTag={toggleFilterTag}
+        />
+      )}
 
       {error && <div className="card" style={{ borderColor: 'var(--danger)', marginBottom: 12 }}>{error}</div>}
 
@@ -310,20 +329,36 @@ export default function Activities() {
             <div className="form-row">
               <div style={{ flex: 1 }}>
                 <label className="label">Name</label>
-                <div style={{ display: 'flex', gap: 8 }}>
-                  <input
-                    className="input"
-                    value={newTag.name}
-                    onChange={(e) => setNewTag({ ...newTag, name: e.target.value })}
-                  />
-                  <input
-                    className="input-color"
-                    type="color"
+                <form
+                  onSubmit={(e) => { e.preventDefault(); createTag(); }}
+                  style={{ display: 'flex', flexDirection: 'column', gap: 10 }}
+                >
+                  <div style={{ display: 'flex', gap: 8 }}>
+                    <input
+                      className="input"
+                      value={newTag.name}
+                      onChange={(e) => setNewTag({ ...newTag, name: e.target.value })}
+                      autoFocus
+                      placeholder="Tag name"
+                    />
+                    <button
+                      type="submit"
+                      className="icon-btn"
+                      aria-label="Add tag"
+                      style={{ background: newTag.color, color: '#fff', borderColor: newTag.color }}
+                    >
+                      <MdAdd />
+                    </button>
+                  </div>
+                  <ColorSwatchPicker
                     value={newTag.color}
-                    onChange={(e) => setNewTag({ ...newTag, color: e.target.value })}
+                    onChange={(c) => setNewTag({ ...newTag, color: c })}
+                    presets={[
+                      ...recentColors,
+                      ...TAG_COLOR_PRESETS.filter((c) => !recentColors.includes(c)),
+                    ]}
                   />
-                  <button className="icon-btn" onClick={createTag}><MdAdd /></button>
-                </div>
+                </form>
               </div>
             </div>
             <div style={{ marginTop: 8 }}>
@@ -381,7 +416,7 @@ function ActivityCard({ activity, onEdit, onDelete }) {
               <button
                 type="button"
                 className="tag-chip tag-chip-more"
-                onClick={() => setShowAll((v) => !v)}
+                onClick={() => smoothUpdate(() => setShowAll((v) => !v))}
                 aria-expanded={showAll}
                 aria-label={showAll ? 'Show fewer tags' : `Show ${hiddenCount} more tags`}
               >

@@ -3,6 +3,7 @@ import { MdDragHandle } from 'react-icons/md';
 import { formatDuration } from '../api.js';
 import ContextMenu from './ContextMenu.jsx';
 import TagChip from './TagChip.jsx';
+import { smoothUpdate } from '../viewTransition.js';
 
 const MAX_VISIBLE_CARD_TAGS = 2;
 
@@ -111,7 +112,7 @@ function SortableItem({ a, dragging, onStartDrag, menuItems, onDurationChange })
               type="button"
               className="tag-chip tag-chip-more"
               onPointerDown={(e) => e.stopPropagation()}
-              onClick={() => setShowAllTags((v) => !v)}
+              onClick={() => smoothUpdate(() => setShowAllTags((v) => !v))}
               aria-expanded={showAllTags}
               aria-label={showAllTags ? 'Show fewer tags' : `Show ${hiddenCount} more tags`}
             >
