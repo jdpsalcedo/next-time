@@ -61,7 +61,7 @@ service cloud.firestore {
 
 ## Deploys
 
-The repo ships two parallel deploys, both pointing at the same Firebase project (`next-time-8844f`). Sign-in and data are shared — they're just different URLs.
+The repo ships two parallel deploys, both pointing at the same Firebase project (`next-time-io`). Sign-in and data are shared — they're just different URLs.
 
 | | Where | When | Workflow |
 |---|---|---|---|
@@ -80,22 +80,47 @@ The app deploys to **Firebase App Hosting**. The Cloud Run container runs `node 
 
 2. **Create the App Hosting backend** in the Firebase Console:
    - Build → App Hosting → **Create backend**
-   - Region: pick one (e.g. `us-central1`)
+   - Region: pick one (e.g. `us-east4`)
    - GitHub repo: `jdpsalcedo/next-time`, branch: `main`
    - **Root directory: `frontend`** (critical — that's where `package.json` + `apphosting.yaml` live)
    - Backend ID: `next-time` (matches the workflow env var `APP_HOSTING_BACKEND_ID`)
    - Live branch: `main`
    - Auto-deploy: **disable** (the GitHub Actions workflow triggers rollouts instead)
 
-3. **Authorized domains** — once the backend is live, Firebase will give it a URL like `https://next-time--next-time-8844f.us-central1.hosted.app`. Add that domain to **Authentication → Settings → Authorized domains** so Google sign-in works.
+3. **Authorized domains** — once the backend is live, Firebase will give it a URL like `https://next-time--next-time-io.us-east4.hosted.app`. Add that domain to **Authentication → Settings → Authorized domains** so Google sign-in works.
 
 4. **Service account for CI**:
    - GCP Console → IAM → Service Accounts → Create. Name: `github-deploy`.
-   - Grant the role **Firebase App Hosting Admin** (or the narrower role `Firebase App Hosting Compute Service Agent` if you scope down).
+   - Grant **three** roles — all are required:
+     - `roles/firebaseapphosting.admin` — trigger rollouts
+     - `roles/developerconnect.admin` — manage the GitHub repo connection
+     - `roles/developerconnect.readTokenAccessor` — **mint the OAuth token that clones the repo at rollout time**
    - Manage keys → Add key → JSON. Download.
    - In GitHub: repo Settings → Secrets and variables → Actions → **New repository secret**.
      - Name: `FIREBASE_SERVICE_ACCOUNT_KEY`
      - Value: paste the full JSON contents of the key file.
+
+   > **Gotcha — `developerconnect.admin` does NOT include `readTokenAccessor`.** The `fetchReadToken` permission (which mints the token used to clone your repo) is gated by a separate role because it grants source-read access to GitHub. Without it, every rollout fails with:
+   > ```
+   > Permission 'developerconnect.gitRepositoryLinks.fetchReadToken' denied on resource
+   > '//developerconnect.googleapis.com/projects/<PROJECT>/locations/<REGION>/connections/<CONN>/gitRepositoryLinks/<LINK>'
+   > ```
+   >
+   > Grant via gcloud if you missed it in the console:
+   > ```bash
+   > gcloud projects add-iam-policy-binding next-time-io \
+   >   --member="serviceAccount:github-deploy@next-time-io.iam.gserviceaccount.com" \
+   >   --role="roles/developerconnect.readTokenAccessor" \
+   >   --condition=None
+   > ```
+   >
+   > The same role is also needed on the App Hosting service agent (`service-<PROJECT_NUMBER>@gcp-sa-firebaseapphosting.iam.gserviceaccount.com`), the compute SA (`firebase-app-hosting-compute@<PROJECT>.iam.gserviceaccount.com`), and the Cloud Build SA (`<PROJECT_NUMBER>@cloudbuild.gserviceaccount.com`). Firebase usually wires those automatically; verify with:
+   > ```bash
+   > gcloud projects get-iam-policy next-time-io \
+   >   --flatten="bindings[].members" \
+   >   --filter="bindings.role:developerconnect.readTokenAccessor" \
+   >   --format="table(bindings.members)"
+   > ```
 
 ### Deploys
 

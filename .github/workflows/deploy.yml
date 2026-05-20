@@ -19,7 +19,7 @@ jobs:
     permissions:
       contents: read
     env:
-      FIREBASE_PROJECT_ID: next-time-8844f
+      FIREBASE_PROJECT_ID: next-time-io
       # Set this to the backend ID you choose when creating the App Hosting backend.
       APP_HOSTING_BACKEND_ID: next-time
     steps:

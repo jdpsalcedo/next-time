@@ -7,13 +7,12 @@ import {
 } from 'firebase/firestore';
 
 const firebaseConfig = {
-  apiKey: 'AIzaSyCnGcZk16pBvXyFN-3zPTDL-6olRZ94l5Q',
-  authDomain: 'next-time-8844f.firebaseapp.com',
-  projectId: 'next-time-8844f',
-  storageBucket: 'next-time-8844f.firebasestorage.app',
-  messagingSenderId: '434250373365',
-  appId: '1:434250373365:web:a0c984198b0092f8600dbc',
-  measurementId: 'G-YWKS1M1Z3E',
+  apiKey: 'AIzaSyDqd0tLgOqE6kXrl0j_kqAi1l1n3xzV8DA',
+  authDomain: 'next-time-io.firebaseapp.com',
+  projectId: 'next-time-io',
+  storageBucket: 'next-time-io.firebasestorage.app',
+  messagingSenderId: '715251567931',
+  appId: '1:715251567931:web:4fda84811d3047243e7b1e',
 };
 
 export const app = initializeApp(firebaseConfig);
