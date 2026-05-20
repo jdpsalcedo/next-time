@@ -335,24 +335,24 @@ export default function Activities() {
             </div>
             <div>
               <label className="label">Tags</label>
-              {tags.length === 0 ? (
-                <div className="muted">No tags yet. Create one from "Manage tags".</div>
-              ) : (
-                <div className="tag-row wrap">
-                  {sortedTags.map((t) => (
-                    <TagChip
-                      key={t.id}
-                      tag={t}
-                      selectable
-                      selected={editing.form.tag_ids.includes(t.id)}
-                      onClick={() => toggleTagInForm(t.id)}
-                    />
-                  ))}
-                  <button className="tag-chip tag-chip-more" onClick={() => setTagModal(true)}>
-                    +
-                  </button>
-                </div>
-              )}
+              <div className="tag-row wrap">
+                {sortedTags.map((t) => (
+                  <TagChip
+                    key={t.id}
+                    tag={t}
+                    selectable
+                    selected={editing.form.tag_ids.includes(t.id)}
+                    onClick={() => toggleTagInForm(t.id)}
+                  />
+                ))}
+                <button
+                  className="tag-chip tag-chip-more"
+                  onClick={() => setTagModal(true)}
+                  aria-label="Add tag"
+                >
+                  +
+                </button>
+              </div>
             </div>
             {error && <div style={{ color: 'var(--danger)' }}>{error}</div>}
             <div className="modal-actions">
