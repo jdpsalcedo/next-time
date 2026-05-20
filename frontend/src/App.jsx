@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { NavLink, Route, Routes, Navigate, useNavigate } from 'react-router-dom';
+import { NavLink, Route, Routes, Navigate, useLocation, useNavigate } from 'react-router-dom';
 import { MdSearch, MdPlayArrow, MdExpandLess, MdExpandMore } from 'react-icons/md';
 import Home from './pages/Home.jsx';
 import Activities from './pages/Activities.jsx';
@@ -43,6 +43,7 @@ function AppShell() {
   const [searchOpen, setSearchOpen] = useState(false);
   const activeTimers = useActiveTimers();
   const hasActive = activeTimers.length > 0;
+  const location = useLocation();
 
   return (
     <div className="app">
@@ -83,13 +84,15 @@ function AppShell() {
       </header>
       {searchOpen && <UniversalSearch onClose={() => setSearchOpen(false)} />}
       <main className="main">
-        <Routes>
-          <Route path="/" element={<Home />} />
-          <Route path="/activities" element={<Activities />} />
-          <Route path="/timers" element={<Timers />} />
-          <Route path="/settings" element={<Settings />} />
-          <Route path="*" element={<Navigate to="/" replace />} />
-        </Routes>
+        <div className="page-enter" key={location.pathname}>
+          <Routes>
+            <Route path="/" element={<Home />} />
+            <Route path="/activities" element={<Activities />} />
+            <Route path="/timers" element={<Timers />} />
+            <Route path="/settings" element={<Settings />} />
+            <Route path="*" element={<Navigate to="/" replace />} />
+          </Routes>
+        </div>
       </main>
       <nav className="bottomnav" aria-label="Primary mobile">
         <NavLink to="/" end className="bottomtab">
@@ -133,22 +136,25 @@ function ActiveTimersDrawer({ activeTimers }) {
   return (
     <div className={`active-drawer ${expanded ? 'expanded' : ''}`}>
       <div className="active-drawer-inner">
-        {expanded && (
-          <div className="active-drawer-list" role="list">
-            {activeTimers.map((t) => (
-              <button
-                key={t.id}
-                type="button"
-                className="active-drawer-item"
-                onClick={() => openFocus(t.id)}
-                role="listitem"
-              >
-                <MdPlayArrow aria-hidden />
-                <span className="active-drawer-item-title">{t.title}</span>
-              </button>
-            ))}
-          </div>
-        )}
+        <div
+          className={`active-drawer-list ${expanded ? '' : 'collapsed'}`}
+          role="list"
+          aria-hidden={!expanded}
+        >
+          {activeTimers.map((t) => (
+            <button
+              key={t.id}
+              type="button"
+              className="active-drawer-item"
+              onClick={() => openFocus(t.id)}
+              role="listitem"
+              tabIndex={expanded ? 0 : -1}
+            >
+              <MdPlayArrow aria-hidden />
+              <span className="active-drawer-item-title">{t.title}</span>
+            </button>
+          ))}
+        </div>
         <button
           type="button"
           className="active-drawer-handle"

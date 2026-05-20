@@ -161,8 +161,19 @@ body {
   display: flex;
   flex-direction: column;
   border-bottom: 1px solid var(--border);
-  max-height: 40vh;
+  max-height: 240px;
   overflow-y: auto;
+  transition: max-height 0.22s ease, opacity 0.18s, border-bottom-color 0.18s;
+}
+.active-drawer-list.collapsed {
+  max-height: 0;
+  opacity: 0;
+  border-bottom-color: transparent;
+  overflow: hidden;
+  pointer-events: none;
+}
+@media (prefers-reduced-motion: reduce) {
+  .active-drawer-list { transition: none; }
 }
 .active-drawer-item {
   appearance: none;
@@ -226,6 +237,17 @@ body {
   width: 100%;
   margin: 0 auto;
   padding: 24px 20px 96px;
+}
+
+.page-enter {
+  animation: page-in 0.18s ease-out;
+}
+@keyframes page-in {
+  from { opacity: 0; transform: translateY(4px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .page-enter, .modal-backdrop, .modal { animation: none; }
 }
 
 .bottomnav {
@@ -680,6 +702,7 @@ p { color: var(--muted); }
   justify-content: center;
   padding: 16px;
   z-index: 50;
+  animation: modal-backdrop-in 0.16s ease-out;
 }
 .modal {
   background: var(--bg-elev);
@@ -690,6 +713,15 @@ p { color: var(--muted); }
   max-width: 480px;
   max-height: 90vh;
   overflow-y: auto;
+  animation: modal-in 0.22s cubic-bezier(0.16, 1, 0.3, 1);
+}
+@keyframes modal-backdrop-in {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+@keyframes modal-in {
+  from { opacity: 0; transform: translateY(8px) scale(0.97); }
+  to   { opacity: 1; transform: translateY(0) scale(1); }
 }
 .modal-title {
   font-size: 1.1rem;
