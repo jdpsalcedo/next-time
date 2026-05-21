@@ -3,6 +3,7 @@ import { useSettings } from '../settings.jsx';
 import { useAuth } from '../auth.jsx';
 import Modal from '../components/Modal.jsx';
 import ColorSwatchPicker from '../components/ColorSwatchPicker.jsx';
+import { commitSlimeAccrual } from '../slime.js';
 
 const GITHUB_USER = 'jdpsalcedo';
 const GITHUB_REPO = 'next-time';
@@ -55,6 +56,28 @@ export default function Settings() {
     }
   }
 
+  async function toggleSlimeEnabled() {
+    setError('');
+    setBusy('slime_enabled');
+    try {
+      const slime = settings.slime || {};
+      const nextEnabled = !slime.enabled;
+      // Commit any pending accrual first so partial earned time isn't dropped.
+      const committed = commitSlimeAccrual(slime);
+      const next = { ...slime, ...committed, enabled: nextEnabled };
+      if (!nextEnabled) {
+        next.on = false;
+        next.attached_timer_id = null;
+        next.running_since_ms = null;
+      }
+      await update({ slime: next });
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setBusy(null);
+    }
+  }
+
   return (
     <div>
       <div className="section-header">
@@ -94,6 +117,13 @@ export default function Settings() {
           on={settings.dark_mode}
           busy={busy === 'dark_mode'}
           onToggle={() => toggle('dark_mode')}
+        />
+        <SettingRow
+          label="Slime pet"
+          description="Adopt a slime that rides along on your timers. It earns a coin for every 5 minutes of running progress. Turning this off detaches the slime and hides its menu items."
+          on={!!settings.slime?.enabled}
+          busy={busy === 'slime_enabled'}
+          onToggle={toggleSlimeEnabled}
         />
         <div
           className="card setting-card-clickable"

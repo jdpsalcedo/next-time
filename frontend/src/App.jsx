@@ -8,6 +8,7 @@ import Timers from './pages/Timers.jsx';
 import Calendar from './pages/Calendar.jsx';
 import Settings from './pages/Settings.jsx';
 import UniversalSearch from './components/UniversalSearch.jsx';
+import SlimeProfileModal, { SlimeProfileButton } from './components/SlimeProfile.jsx';
 import { useActiveTimers } from './timerRuns.js';
 import { SettingsProvider } from './settings.jsx';
 import { ToastProvider } from './toast.jsx';
@@ -53,6 +54,7 @@ function AppShell() {
   const activeTimers = useActiveTimers();
   const hasActive = activeTimers.length > 0;
   const location = useLocation();
+  const [slimeProfileOpen, setSlimeProfileOpen] = useState(false);
 
   return (
     <div className="app">
@@ -91,9 +93,11 @@ function AppShell() {
           >
             <MdSearch />
           </button>
+          <SlimeProfileButton onClick={() => setSlimeProfileOpen(true)} />
         </div>
       </header>
       {searchOpen && <UniversalSearch onClose={closeSearch} />}
+      {slimeProfileOpen && <SlimeProfileModal onClose={() => setSlimeProfileOpen(false)} />}
       <main className="main">
         <div className="page-enter" key={location.pathname}>
           <Routes>

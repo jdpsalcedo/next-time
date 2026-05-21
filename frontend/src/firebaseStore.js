@@ -389,6 +389,18 @@ const SETTINGS_DEFAULTS = {
   dummy_data: false,
   accent_color: '#38bdf8',
   split_warning_seconds: 5,
+  slime: {
+    enabled: false,
+    on: false,
+    attached_timer_id: null,
+    skin: 'emerald',
+    hat: null,
+    accessory: null,
+    animation: 'hop',
+    coins: 0,
+    accrued_seconds: 0,
+    running_since_ms: null,
+  },
 };
 
 export async function getSettings() {

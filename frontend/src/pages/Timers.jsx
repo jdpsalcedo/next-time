@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { commitSlimeAccrual, isSlimeAttachedTo, SECONDS_PER_COIN } from '../slime.js';
 import { useSearchParams } from 'react-router-dom';
 import { api, formatDuration } from '../api.js';
 import { useData } from '../data.jsx';
@@ -20,6 +21,7 @@ import TagChip from '../components/TagChip.jsx';
 import TimerDial from '../components/TimerDial.jsx';
 import ActivityFormModal from '../components/ActivityFormModal.jsx';
 import FilterPanel from '../components/FilterPanel.jsx';
+import SlimeSprite from '../components/SlimeSprite.jsx';
 import { createTimerEvent, todayString } from '../timerEvents.js';
 import { useSettings } from '../settings.jsx';
 import {
@@ -27,6 +29,7 @@ import {
   MdPlayArrow,
   MdPause,
   MdRefresh,
+  MdRestartAlt,
   MdCenterFocusStrong,
   MdSkipPrevious,
   MdSkipNext,
@@ -103,8 +106,9 @@ function captionDuration(secs) {
 }
 
 export default function Timers() {
-  const { settings } = useSettings();
+  const { settings, update: updateSettings } = useSettings();
   const reverse = !!settings.reverse_countdown;
+  const slime = settings.slime || {};
 
   const toast = useToast();
   const { timers, activities, tags } = useData();
@@ -113,6 +117,88 @@ export default function Timers() {
   const [saveAsForm, setSaveAsForm] = useState(null);
 
   const runs = useTimerRuns();
+
+  const slimeRef = useRef(slime);
+  useEffect(() => { slimeRef.current = slime; }, [slime]);
+  const runsRef = useRef(runs);
+  useEffect(() => { runsRef.current = runs; }, [runs]);
+
+  const writeSlime = useCallback(async (patch) => {
+    try {
+      const current = slimeRef.current || {};
+      await updateSettings({ slime: { ...current, ...patch } });
+    } catch (e) {
+      toast.error(e.message);
+    }
+  }, [updateSettings, toast]);
+
+  // Commit any pending accrual and apply the given patch in one write.
+  const commitAndPatchSlime = useCallback(async (patch, nowMs = Date.now()) => {
+    const current = slimeRef.current || {};
+    const committed = commitSlimeAccrual(current, nowMs);
+    await writeSlime({ ...committed, ...patch });
+  }, [writeSlime]);
+
+  async function attachSlimeTo(timerId) {
+    const current = slimeRef.current || {};
+    const committed = commitSlimeAccrual(current);
+    const playingNow = !!runsRef.current[timerId]?.isPlaying;
+    await writeSlime({
+      ...committed,
+      on: true,
+      attached_timer_id: timerId,
+      running_since_ms: playingNow ? Date.now() : null,
+    });
+  }
+  async function detachSlime() {
+    await commitAndPatchSlime({
+      on: false,
+      attached_timer_id: null,
+      running_since_ms: null,
+    });
+  }
+
+  // Reconcile stale running_since_ms on mount: if slime says it was running
+  // but the attached timer isn't actually playing, drop the partial accrual.
+  const reconciledRef = useRef(false);
+  useEffect(() => {
+    if (reconciledRef.current) return;
+    const s = slimeRef.current;
+    if (!s?.enabled || !s?.running_since_ms || !s?.attached_timer_id) return;
+    const r = runs[s.attached_timer_id];
+    if (!r?.isPlaying) {
+      reconciledRef.current = true;
+      writeSlime({ running_since_ms: null });
+    } else {
+      reconciledRef.current = true;
+    }
+  }, [runs, writeSlime]);
+
+  // Safety commit every 5 minutes while attached + running, to bound write batches.
+  useEffect(() => {
+    if (!slime.enabled) return undefined;
+    const id = setInterval(() => {
+      const s = slimeRef.current;
+      if (!s?.running_since_ms || !s?.attached_timer_id) return;
+      const r = runsRef.current[s.attached_timer_id];
+      if (!r?.isPlaying) return;
+      commitAndPatchSlime({ running_since_ms: Date.now() });
+    }, SECONDS_PER_COIN * 1000);
+    return () => clearInterval(id);
+  }, [slime.enabled, commitAndPatchSlime]);
+
+  // Best-effort commit on page unload so accrued time isn't lost.
+  useEffect(() => {
+    function onUnload() {
+      const s = slimeRef.current;
+      if (!s?.enabled || !s?.running_since_ms) return;
+      const committed = commitSlimeAccrual(s);
+      // Fire-and-forget; Firestore offline persistence will queue if needed.
+      updateSettings({ slime: { ...s, ...committed, running_since_ms: null } });
+    }
+    window.addEventListener('beforeunload', onUnload);
+    return () => window.removeEventListener('beforeunload', onUnload);
+  }, [updateSettings]);
   const [expandedId, setExpandedId] = useState(null);
   const [customForm, setCustomForm] = useState(null);
   const [pickerOpen, setPickerOpen] = useState(false);
@@ -188,11 +274,43 @@ export default function Timers() {
     return () => cancelAnimationFrame(rafId);
   }, [anyPlaying]);
 
-  function togglePlay(timer) {
-    return togglePlayTimer(timer, runs[timer.id]);
+  async function togglePlay(timer) {
+    const wasPlaying = !!runs[timer.id]?.isPlaying;
+    await togglePlayTimer(timer, runs[timer.id]);
+    if (!isSlimeAttachedTo(slimeRef.current, timer.id)) return;
+    if (wasPlaying) {
+      // pausing — commit accrual and clear running marker
+      await commitAndPatchSlime({ running_since_ms: null });
+    } else {
+      // starting — record running marker (no accrual to commit yet)
+      await writeSlime({ running_since_ms: Date.now() });
+    }
   }
-  function resetRun(timerId) {
-    return resetTimerRun(timerId);
+  async function resetRun(timerId) {
+    const wasPlaying = !!runs[timerId]?.isPlaying;
+    await resetTimerRun(timerId);
+    if (!isSlimeAttachedTo(slimeRef.current, timerId)) return;
+    if (wasPlaying) {
+      await commitAndPatchSlime({ running_since_ms: null });
+    } else if (slimeRef.current.running_since_ms) {
+      await writeSlime({ running_since_ms: null });
+    }
+  }
+  async function resetAllRuns() {
+    const ids = Object.keys(runs);
+    if (ids.length === 0) {
+      toast.info('No active timers to reset.');
+      return;
+    }
+    if (!confirm(`Reset all ${ids.length} running/paused timer${ids.length === 1 ? '' : 's'}?`)) return;
+    const attachedId = slimeRef.current?.attached_timer_id;
+    const wasAttachedRunning =
+      isSlimeAttachedTo(slimeRef.current, attachedId) && !!runs[attachedId]?.isPlaying;
+    for (const id of ids) resetTimerRun(id);
+    if (wasAttachedRunning) {
+      await commitAndPatchSlime({ running_since_ms: null });
+    }
+    toast.success('All timers reset');
   }
   function prevSplit(timer) {
     return prevSplitTimer(timer, runs[timer.id]);
@@ -314,7 +432,14 @@ export default function Timers() {
     const removed = timers.find((t) => t.id === id);
     try {
       await api.deleteTimer(id);
-      resetRun(id);
+      await resetRun(id);
+      if (slimeRef.current?.attached_timer_id === id) {
+        await commitAndPatchSlime({
+          on: false,
+          attached_timer_id: null,
+          running_since_ms: null,
+        });
+      }
       if (focusedId === id) setFocusedId(null);
       toast.success(removed ? `Deleted "${removed.title}"` : 'Timer deleted');
     } catch (e) {
@@ -507,7 +632,7 @@ export default function Timers() {
 
   const filteredTimers = useMemo(() => {
     const q = search.trim().toLowerCase();
-    const matches = timers.filter((t) => {
+    return timers.filter((t) => {
       if (q) {
         const qMatch =
           t.title.toLowerCase().includes(q) ||
@@ -527,14 +652,7 @@ export default function Timers() {
       }
       return true;
     });
-    const active = [];
-    const inactive = [];
-    for (const t of matches) {
-      if (runs[t.id]?.isPlaying) active.push(t);
-      else inactive.push(t);
-    }
-    return [...active, ...inactive];
-  }, [timers, search, selectedTagIds, runs]);
+  }, [timers, search, selectedTagIds]);
 
   return (
     <div>
@@ -549,6 +667,15 @@ export default function Timers() {
             title={filtersOpen ? 'Hide filters' : 'Show filters'}
           >
             {filtersOpen ? <MdFilterList /> : <MdFilterListOff />}
+          </button>
+          <button
+            className="icon-btn"
+            onClick={resetAllRuns}
+            disabled={Object.keys(runs).length === 0}
+            aria-label="Reset all timers"
+            title="Reset all timers"
+          >
+            <MdRestartAlt />
           </button>
           <button className="icon-btn" onClick={openCreate} aria-label="New timer">
             <MdAdd />
@@ -584,6 +711,9 @@ export default function Timers() {
               run={runs[t.id]}
               reverse={reverse}
               expanded={expandedId === t.id}
+              slime={slime}
+              onAttachSlime={() => attachSlimeTo(t.id)}
+              onDetachSlime={detachSlime}
               onToggleExpand={() =>
                 smoothUpdate(() => setExpandedId((prev) => (prev === t.id ? null : t.id)))
               }
@@ -713,6 +843,9 @@ export default function Timers() {
           run={runs[focusedTimer.id]}
           reverse={reverse}
           warningSeconds={Number(settings.split_warning_seconds) || 0}
+          slime={slime}
+          onAttachSlime={() => attachSlimeTo(focusedTimer.id)}
+          onDetachSlime={detachSlime}
           onClose={() => setFocusedId(null)}
           onTogglePlay={() => togglePlay(focusedTimer)}
           onReset={() => resetRun(focusedTimer.id)}
@@ -865,6 +998,9 @@ function TimerCard({
   run,
   reverse,
   expanded,
+  slime,
+  onAttachSlime,
+  onDetachSlime,
   onToggleExpand,
   onTogglePlay,
   onReset,
@@ -874,6 +1010,14 @@ function TimerCard({
   onDelete,
   onAddToCalendar,
 }) {
+  const slimeEnabled = !!slime?.enabled;
+  const slimeAttachedHere = slimeEnabled && !!slime?.on && slime?.attached_timer_id === timer.id;
+  const slimeLabel = slimeAttachedHere
+    ? 'Detach slime'
+    : slime?.on && slime?.attached_timer_id
+      ? 'Move slime here'
+      : 'Attach slime';
+  const onSlimeToggle = slimeAttachedHere ? onDetachSlime : onAttachSlime;
   const d = deriveRun(timer, run);
   const empty = timer.activities.length === 0;
   const timerTags = useMemo(() => uniqueTagsForTimer(timer.activities), [timer.activities]);
@@ -902,7 +1046,7 @@ function TimerCard({
   return (
     <div
       ref={cardRef}
-      className={`card timer-card timer-state-${d.state} ${expanded ? 'expanded' : ''}`}
+      className={`card timer-card timer-state-${d.state} ${expanded ? 'expanded' : ''} ${slimeAttachedHere ? 'has-slime' : ''}`}
       onClick={onToggleExpand}
       role="button"
       tabIndex={0}
@@ -942,11 +1086,22 @@ function TimerCard({
               { label: 'Edit', onClick: onEdit },
               { label: 'Duplicate', onClick: onDuplicate },
               { label: 'Add to calendar', onClick: onAddToCalendar },
+              ...(slimeEnabled ? [{ label: slimeLabel, onClick: onSlimeToggle }] : []),
               { label: 'Delete', danger: true, onClick: onDelete },
             ]}
           />
         </div>
       </div>
+      {slimeAttachedHere && (
+        <div className="timer-card-slime" aria-hidden>
+          <SlimeSprite
+            skin={slime.skin}
+            size={48}
+            fps={8}
+            state={run?.isPlaying ? 'hopping' : 'sleeping'}
+          />
+        </div>
+      )}
       {expanded && timerTags.length > 0 && (
         <div className="timer-card-tags tag-row wrap">
           {timerTags.map((t) => <TagChip key={t.id} tag={t} />)}
@@ -973,6 +1128,9 @@ function FocusedTimer({
   run,
   reverse,
   warningSeconds = 0,
+  slime,
+  onAttachSlime,
+  onDetachSlime,
   onClose,
   onTogglePlay,
   onReset,
@@ -984,6 +1142,14 @@ function FocusedTimer({
   onDelete,
   onAddToCalendar,
 }) {
+  const slimeEnabled = !!slime?.enabled;
+  const slimeAttachedHere = slimeEnabled && !!slime?.on && slime?.attached_timer_id === timer.id;
+  const slimeLabel = slimeAttachedHere
+    ? 'Detach slime'
+    : slime?.on && slime?.attached_timer_id
+      ? 'Move slime here'
+      : 'Attach slime';
+  const onSlimeToggle = slimeAttachedHere ? onDetachSlime : onAttachSlime;
   const d = deriveRun(timer, run);
   const splits = timer.activities;
   const current = splits[d.index];
@@ -1081,6 +1247,7 @@ function FocusedTimer({
               { label: 'Edit', onClick: onEdit },
               { label: 'Duplicate', onClick: onDuplicate },
               { label: 'Add to calendar', onClick: onAddToCalendar },
+              ...(slimeEnabled ? [{ label: slimeLabel, onClick: onSlimeToggle }] : []),
               { label: 'Delete', danger: true, onClick: onDelete },
             ]}
           />
@@ -1119,6 +1286,16 @@ function FocusedTimer({
             reverse={reverse}
             showAll={seeAll}
           />
+        )}
+        {slimeAttachedHere && (
+          <div className="focused-timer-slime" aria-hidden>
+            <SlimeSprite
+              skin={slime.skin}
+              size={64}
+              fps={8}
+              state={run?.isPlaying ? 'hopping' : 'sleeping'}
+            />
+          </div>
         )}
       </div>
     </Modal>
