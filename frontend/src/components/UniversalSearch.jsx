@@ -1,6 +1,7 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { api, formatDuration } from '../api.js';
+import { formatDuration } from '../api.js';
+import { useData } from '../data.jsx';
 import Modal from './Modal.jsx';
 import TagChip from './TagChip.jsx';
 
@@ -8,15 +9,7 @@ const MAX_PER_GROUP = 5;
 
 export default function UniversalSearch({ onClose }) {
   const [search, setSearch] = useState('');
-  const [activities, setActivities] = useState([]);
-  const [timers, setTimers] = useState([]);
-  const [tags, setTags] = useState([]);
-
-  useEffect(() => {
-    Promise.all([api.listActivities(), api.listTimers(), api.listTags()])
-      .then(([a, t, g]) => { setActivities(a); setTimers(t); setTags(g); })
-      .catch(() => {});
-  }, []);
+  const { activities, timers, tags } = useData();
 
   const results = useMemo(() => {
     const q = search.trim().toLowerCase();

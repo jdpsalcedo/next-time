@@ -1,10 +1,10 @@
 import { useEffect, useMemo, useState } from 'react';
 import {
   subscribeTimerRuns,
-  subscribeTimerTitles,
   setTimerRun,
   deleteTimerRun,
 } from './firebaseStore.js';
+import { useData } from './data.jsx';
 
 export function useTimerRuns() {
   const [runs, setRuns] = useState({});
@@ -17,12 +17,9 @@ export function useTimerRuns() {
 
 export function useActiveTimers() {
   const runs = useTimerRuns();
-  const [titles, setTitles] = useState(() => new Map());
-  useEffect(() => {
-    const unsub = subscribeTimerTitles((m) => setTitles(m));
-    return unsub;
-  }, []);
+  const { timers } = useData();
   return useMemo(() => {
+    const titles = new Map(timers.map((t) => [t.id, t.title || 'Timer']));
     const active = [];
     for (const [id, run] of Object.entries(runs)) {
       if (run.isPlaying) {
@@ -30,7 +27,7 @@ export function useActiveTimers() {
       }
     }
     return active;
-  }, [runs, titles]);
+  }, [runs, timers]);
 }
 
 export function deriveRun(timer, run, nowMs = Date.now()) {

@@ -13,6 +13,8 @@ import { SettingsProvider } from './settings.jsx';
 import { ToastProvider } from './toast.jsx';
 import { useAuth } from './auth.jsx';
 import { UIProvider, useUI } from './ui.jsx';
+import { DataProvider } from './data.jsx';
+import SyncIndicator from './components/SyncIndicator.jsx';
 
 export default function App() {
   const { user, loading, signIn } = useAuth();
@@ -32,13 +34,15 @@ export default function App() {
     );
   }
   return (
-    <SettingsProvider>
-      <ToastProvider>
-        <UIProvider>
-          <AppShell />
-        </UIProvider>
-      </ToastProvider>
-    </SettingsProvider>
+    <DataProvider>
+      <SettingsProvider>
+        <ToastProvider>
+          <UIProvider>
+            <AppShell />
+          </UIProvider>
+        </ToastProvider>
+      </SettingsProvider>
+    </DataProvider>
   );
 }
 
@@ -65,6 +69,7 @@ function AppShell() {
           )}
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <SyncIndicator />
           <nav className="tabs" aria-label="Primary">
             <NavLink to="/" end className="tab">Home</NavLink>
             <NavLink to="/activities" className="tab">Activities</NavLink>

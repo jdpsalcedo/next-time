@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { api, formatDuration } from '../api.js';
+import { useData } from '../data.jsx';
 import { smoothUpdate } from '../viewTransition.js';
 import {
   useTimerRuns,
@@ -106,9 +107,7 @@ export default function Timers() {
   const reverse = !!settings.reverse_countdown;
 
   const toast = useToast();
-  const [timers, setTimers] = useState([]);
-  const [activities, setActivities] = useState([]);
-  const [tags, setTags] = useState([]);
+  const { timers, activities, tags } = useData();
   const [editing, setEditing] = useState(null);
   const [error, setError] = useState('');
   const [saveAsForm, setSaveAsForm] = useState(null);
@@ -171,20 +170,11 @@ export default function Timers() {
     });
   }
 
-  async function refresh() {
-    const [t, a, g] = await Promise.all([api.listTimers(), api.listActivities(), api.listTags()]);
-    setTimers(t);
-    setActivities(a);
-    setTags(g);
-  }
-
   const tmpIdRef = useRef(0);
   function newTmpId() {
     tmpIdRef.current += 1;
     return `tmp-${tmpIdRef.current}`;
   }
-
-  useEffect(() => { refresh().catch((e) => setError(e.message)); }, []);
 
   const anyPlaying = Object.values(runs).some((r) => r.isPlaying);
   useEffect(() => {
@@ -278,7 +268,6 @@ export default function Timers() {
       if (wasCreate) await api.createTimer(payload);
       else await api.updateTimer(editing.id, payload);
       setEditing(null);
-      await refresh();
       toast.success(wasCreate ? `Created "${payload.title}"` : `Updated "${payload.title}"`);
     } catch (e) {
       setError(e.message);
@@ -313,7 +302,6 @@ export default function Timers() {
     };
     try {
       await api.createTimer(payload);
-      await refresh();
       toast.success(`Duplicated "${src.title}"`);
     } catch (e) {
       setError(e.message);
@@ -328,7 +316,6 @@ export default function Timers() {
       await api.deleteTimer(id);
       resetRun(id);
       if (focusedId === id) setFocusedId(null);
-      await refresh();
       toast.success(removed ? `Deleted "${removed.title}"` : 'Timer deleted');
     } catch (e) {
       setError(e.message);
@@ -422,7 +409,6 @@ export default function Timers() {
   async function commitSaveAsActivity(payload) {
     const { itemId } = saveAsForm;
     const created = await api.createActivity(payload);
-    setActivities((prev) => [created, ...prev]);
     setEditing((prev) => {
       if (!prev) return prev;
       return {
@@ -726,6 +712,7 @@ export default function Timers() {
           timer={focusedTimer}
           run={runs[focusedTimer.id]}
           reverse={reverse}
+          warningSeconds={Number(settings.split_warning_seconds) || 0}
           onClose={() => setFocusedId(null)}
           onTogglePlay={() => togglePlay(focusedTimer)}
           onReset={() => resetRun(focusedTimer.id)}
@@ -985,6 +972,7 @@ function FocusedTimer({
   timer,
   run,
   reverse,
+  warningSeconds = 0,
   onClose,
   onTogglePlay,
   onReset,
@@ -1010,14 +998,30 @@ function FocusedTimer({
   else caption = `Remaining from ${captionDuration(d.total)}`;
 
   const [seeAll, setSeeAll] = useState(false);
+  const [locked, setLocked] = useState(false);
+
+  const splitRemaining = current ? current.duration_seconds - d.splitElapsed : Infinity;
+  const inWarning =
+    warningSeconds > 0 &&
+    d.state === 'running' &&
+    splitRemaining > 0 &&
+    splitRemaining <= warningSeconds;
+
+  const noop = () => {};
+  const gPrev = locked ? noop : onPrev;
+  const gPlay = locked ? noop : onTogglePlay;
+  const gReset = locked ? noop : onReset;
+  const gNext = locked ? noop : onNext;
+  const gSeek = locked ? undefined : onSeek;
+  const gCenterTap = locked || splits.length === 0 ? undefined : onTogglePlay;
 
   const controls = (
     <div className="focused-timer-controls">
       <button
         type="button"
         className="icon-btn"
-        onClick={onPrev}
-        disabled={splits.length === 0}
+        onClick={gPrev}
+        disabled={splits.length === 0 || locked}
         aria-label="Previous split"
       >
         <MdSkipPrevious />
@@ -1025,8 +1029,8 @@ function FocusedTimer({
       <button
         type="button"
         className="icon-btn timer-play-btn"
-        onClick={onTogglePlay}
-        disabled={splits.length === 0}
+        onClick={gPlay}
+        disabled={splits.length === 0 || locked}
         aria-label={run?.isPlaying ? 'Pause' : 'Play'}
       >
         {run?.isPlaying ? <MdPause /> : <MdPlayArrow />}
@@ -1034,8 +1038,8 @@ function FocusedTimer({
       <button
         type="button"
         className="icon-btn"
-        onClick={onReset}
-        disabled={!run}
+        onClick={gReset}
+        disabled={!run || locked}
         aria-label="Reset"
       >
         <MdRefresh />
@@ -1043,8 +1047,8 @@ function FocusedTimer({
       <button
         type="button"
         className="icon-btn"
-        onClick={onNext}
-        disabled={splits.length === 0}
+        onClick={gNext}
+        disabled={splits.length === 0 || locked}
         aria-label="Next split"
       >
         <MdSkipNext />
@@ -1054,11 +1058,22 @@ function FocusedTimer({
 
   return (
     <Modal title={null} onClose={onClose}>
-      <div className={`focused-timer timer-state-${d.state} ${seeAll ? 'see-all' : ''}`}>
+      <div
+        className={
+          `focused-timer timer-state-${d.state}` +
+          (seeAll ? ' see-all' : '') +
+          (inWarning ? ' timer-warning' : '') +
+          (locked ? ' locked' : '')
+        }
+      >
         <div className="focused-timer-head">
           <div className="timer-card-title">{timer.title}</div>
           <ContextMenu
             items={[
+              {
+                label: locked ? 'Unlock controls' : 'Lock controls',
+                onClick: () => setLocked((v) => !v),
+              },
               {
                 label: seeAll ? 'Show dial' : 'See all splits',
                 onClick: () => smoothUpdate(() => setSeeAll((v) => !v)),
@@ -1088,8 +1103,8 @@ function FocusedTimer({
                 topLabel={captionDuration(d.total)}
                 centerLabel={formatRich(displayTime)}
                 bottomLabel={current?.title || ''}
-                onSeek={onSeek}
-                onCenterTap={splits.length > 0 ? onTogglePlay : undefined}
+                onSeek={gSeek}
+                onCenterTap={gCenterTap}
               />
             </div>
             {controls}

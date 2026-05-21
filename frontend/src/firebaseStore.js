@@ -128,15 +128,40 @@ async function fetchActivitiesMap() {
   return new Map(snap.docs.map((d) => [d.id, { id: d.id, ...d.data() }]));
 }
 
-// ---- Tags ----
+export { hydrateActivity, hydrateTimer, publicTag };
 
-export async function listTags() {
-  const snap = await getDocs(userCol('tags'));
-  return snap.docs
-    .map((d) => ({ id: d.id, ...d.data() }))
-    .sort((a, b) => a.name.localeCompare(b.name))
-    .map(publicTag);
+// ---- Live subscriptions (cross-device sync) ----
+// Each callback receives ({ docs, fromCache, hasPendingWrites }).
+// docs is an array of { id, ...data } in arbitrary order; callers sort/hydrate.
+
+function subscribeCol(name, callback) {
+  return onSnapshot(
+    userCol(name),
+    { includeMetadataChanges: true },
+    (snap) => {
+      const docs = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+      callback({
+        docs,
+        fromCache: snap.metadata.fromCache,
+        hasPendingWrites: snap.metadata.hasPendingWrites,
+      });
+    },
+  );
 }
+
+export function subscribeTags(callback) {
+  return subscribeCol('tags', callback);
+}
+
+export function subscribeActivities(callback) {
+  return subscribeCol('activities', callback);
+}
+
+export function subscribeTimers(callback) {
+  return subscribeCol('timers', callback);
+}
+
+// ---- Tags ----
 
 export async function createTag({ name, color }) {
   const data = {
@@ -173,21 +198,6 @@ export async function deleteTag(id) {
 }
 
 // ---- Activities ----
-
-export async function listActivities() {
-  const [actsSnap, tagsById] = await Promise.all([
-    getDocs(userCol('activities')),
-    fetchTagsMap(),
-  ]);
-  return actsSnap.docs
-    .map((d) => ({ id: d.id, ...d.data() }))
-    .sort((a, b) => {
-      const ta = a.created_at?.toMillis?.() ?? 0;
-      const tb = b.created_at?.toMillis?.() ?? 0;
-      return tb - ta;
-    })
-    .map((a) => hydrateActivity(a, tagsById));
-}
 
 export async function createActivity({
   title,
@@ -246,22 +256,6 @@ export async function deleteActivity(id) {
 
 // ---- Timers ----
 
-export async function listTimers() {
-  const [timersSnap, activitiesById, tagsById] = await Promise.all([
-    getDocs(userCol('timers')),
-    fetchActivitiesMap(),
-    fetchTagsMap(),
-  ]);
-  return timersSnap.docs
-    .map((d) => ({ id: d.id, ...d.data() }))
-    .sort((a, b) => {
-      const ta = a.created_at?.toMillis?.() ?? 0;
-      const tb = b.created_at?.toMillis?.() ?? 0;
-      return tb - ta;
-    })
-    .map((t) => hydrateTimer(t, activitiesById, tagsById));
-}
-
 async function getHydratedTimer(id) {
   const [tSnap, activitiesById, tagsById] = await Promise.all([
     getDoc(userDoc('timers', id)),
@@ -301,32 +295,29 @@ export async function deleteTimer(id) {
 
 // ---- Timer runs (wall-clock-anchored, multi-client) ----
 
-export function subscribeTimerTitles(callback) {
-  return onSnapshot(userCol('timers'), (snap) => {
-    const titles = new Map();
-    for (const d of snap.docs) {
-      titles.set(d.id, d.data().title || '');
-    }
-    callback(titles);
-  });
-}
-
 export function subscribeTimerRuns(callback) {
-  return onSnapshot(userCol('timerRuns'), (snap) => {
-    const runs = {};
-    for (const d of snap.docs) {
-      const data = d.data();
-      runs[d.id] = {
-        isPlaying: !!data.isPlaying,
-        anchorAt: typeof data.anchorAt === 'number' ? data.anchorAt : null,
-        pausedTotalElapsedSec:
-          typeof data.pausedTotalElapsedSec === 'number'
-            ? data.pausedTotalElapsedSec
-            : 0,
-      };
-    }
-    callback(runs);
-  });
+  return onSnapshot(
+    userCol('timerRuns'),
+    { includeMetadataChanges: true },
+    (snap) => {
+      const runs = {};
+      for (const d of snap.docs) {
+        const data = d.data();
+        runs[d.id] = {
+          isPlaying: !!data.isPlaying,
+          anchorAt: typeof data.anchorAt === 'number' ? data.anchorAt : null,
+          pausedTotalElapsedSec:
+            typeof data.pausedTotalElapsedSec === 'number'
+              ? data.pausedTotalElapsedSec
+              : 0,
+        };
+      }
+      callback(runs, {
+        fromCache: snap.metadata.fromCache,
+        hasPendingWrites: snap.metadata.hasPendingWrites,
+      });
+    },
+  );
 }
 
 export async function setTimerRun(timerId, patch) {
@@ -356,9 +347,12 @@ export function subscribeTimerEvents({ from, to }, callback) {
     where('date', '>=', from),
     where('date', '<=', to),
   );
-  return onSnapshot(q, (snap) => {
+  return onSnapshot(q, { includeMetadataChanges: true }, (snap) => {
     const events = snap.docs.map((d) => hydrateTimerEvent(d.id, d.data()));
-    callback(events);
+    callback(events, {
+      fromCache: snap.metadata.fromCache,
+      hasPendingWrites: snap.metadata.hasPendingWrites,
+    });
   });
 }
 
@@ -394,6 +388,7 @@ const SETTINGS_DEFAULTS = {
   reverse_countdown: false,
   dummy_data: false,
   accent_color: '#38bdf8',
+  split_warning_seconds: 5,
 };
 
 export async function getSettings() {

@@ -1,17 +1,14 @@
 import * as store from './firebaseStore.js';
 
 export const api = {
-  listTags: () => store.listTags(),
   createTag: (data) => store.createTag(data),
   updateTag: (id, data) => store.updateTag(id, data),
   deleteTag: (id) => store.deleteTag(id),
 
-  listActivities: () => store.listActivities(),
   createActivity: (data) => store.createActivity(data),
   updateActivity: (id, data) => store.updateActivity(id, data),
   deleteActivity: (id) => store.deleteActivity(id),
 
-  listTimers: () => store.listTimers(),
   createTimer: (data) => store.createTimer(data),
   updateTimer: (id, data) => store.updateTimer(id, data),
   deleteTimer: (id) => store.deleteTimer(id),

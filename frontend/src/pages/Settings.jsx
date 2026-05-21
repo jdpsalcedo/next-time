@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { useSettings } from '../settings.jsx';
 import { useAuth } from '../auth.jsx';
 import Modal from '../components/Modal.jsx';
@@ -40,6 +40,18 @@ export default function Settings() {
     }
   }
 
+  async function setSplitWarning(seconds) {
+    setError('');
+    setBusy('split_warning_seconds');
+    try {
+      await update({ split_warning_seconds: seconds });
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setBusy(null);
+    }
+  }
+
   return (
     <div>
       <div className="section-header">
@@ -60,6 +72,11 @@ export default function Settings() {
           on={settings.reverse_countdown}
           busy={busy === 'reverse_countdown'}
           onToggle={() => toggle('reverse_countdown')}
+        />
+        <SplitWarningRow
+          value={settings.split_warning_seconds ?? 5}
+          busy={busy === 'split_warning_seconds'}
+          onChange={setSplitWarning}
         />
         <SettingRow
           label="Dummy data"
@@ -162,6 +179,48 @@ function SettingRow({ label, description, on, busy, onToggle }) {
         >
           <span className="toggle-thumb" />
         </button>
+      </div>
+    </div>
+  );
+}
+
+function SplitWarningRow({ value, busy, onChange }) {
+  const [draft, setDraft] = useState(String(value));
+  const lastCommittedRef = useRef(value);
+  if (lastCommittedRef.current !== value) {
+    lastCommittedRef.current = value;
+    setDraft(String(value));
+  }
+  function commit() {
+    const n = Math.max(0, Math.min(60, Math.round(Number(draft) || 0)));
+    setDraft(String(n));
+    if (n !== value) onChange(n);
+  }
+  return (
+    <div className="card">
+      <div className="row">
+        <div className="row-main">
+          <div style={{ fontWeight: 600 }}>Warn before next split</div>
+          <div className="muted" style={{ marginTop: 4 }}>
+            Pulse the focused timer yellow when the current split has this many seconds left. Set to 0 to disable.
+          </div>
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+          <input
+            className="input"
+            type="number"
+            min="0"
+            max="60"
+            value={draft}
+            disabled={busy}
+            onChange={(e) => setDraft(e.target.value)}
+            onBlur={commit}
+            onKeyDown={(e) => { if (e.key === 'Enter') e.currentTarget.blur(); }}
+            style={{ width: 64, textAlign: 'right' }}
+            aria-label="Warn before next split (seconds)"
+          />
+          <span className="muted" style={{ fontSize: '0.85rem' }}>sec</span>
+        </div>
       </div>
     </div>
   );

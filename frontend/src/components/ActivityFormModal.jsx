@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import Modal from './Modal.jsx';
 import TagChip from './TagChip.jsx';
 
@@ -19,6 +19,22 @@ export default function ActivityFormModal({
   }));
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
+
+  const knownTagIdsRef = useRef(new Set((tags || []).map((t) => t.id)));
+  useEffect(() => {
+    const currentIds = new Set((tags || []).map((t) => t.id));
+    const newIds = [];
+    for (const id of currentIds) {
+      if (!knownTagIdsRef.current.has(id)) newIds.push(id);
+    }
+    knownTagIdsRef.current = currentIds;
+    setForm((prev) => {
+      const additions = newIds.filter((id) => !prev.tag_ids.includes(id));
+      const kept = prev.tag_ids.filter((id) => currentIds.has(id));
+      if (additions.length === 0 && kept.length === prev.tag_ids.length) return prev;
+      return { ...prev, tag_ids: [...kept, ...additions] };
+    });
+  }, [tags]);
 
   const sortedTags = [...(tags || [])].sort((a, b) => a.name.localeCompare(b.name));
 

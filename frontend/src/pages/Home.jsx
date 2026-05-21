@@ -1,11 +1,12 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { MdInfoOutline, MdAccessTime, MdPlayArrow, MdSearch, MdExpandLess, MdExpandMore } from 'react-icons/md';
 import { smoothUpdate } from '../viewTransition.js';
-import { api, formatDuration } from '../api.js';
+import { formatDuration } from '../api.js';
 import Modal from '../components/Modal.jsx';
 import TagChip from '../components/TagChip.jsx';
 import { useUI } from '../ui.jsx';
+import { useData } from '../data.jsx';
 import {
   useTimerEventsForRange,
   todayString,
@@ -40,18 +41,10 @@ function randomGlowStyle() {
 }
 
 export default function Home() {
-  const [activities, setActivities] = useState([]);
-  const [timers, setTimers] = useState([]);
-  const [tags, setTags] = useState([]);
+  const { activities, timers, tags } = useData();
   const [infoOpen, setInfoOpen] = useState(false);
   const navigate = useNavigate();
   const { openSearch } = useUI();
-
-  useEffect(() => {
-    Promise.all([api.listActivities(), api.listTimers(), api.listTags()])
-      .then(([a, t, g]) => { setActivities(a); setTimers(t); setTags(g); })
-      .catch(() => {});
-  }, []);
 
   const today = todayString();
   const eventsRange = useMemo(

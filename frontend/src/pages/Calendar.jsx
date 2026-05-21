@@ -1,7 +1,7 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { MdChevronLeft, MdChevronRight, MdAdd, MdAccessTime, MdDelete, MdOpenInNew, MdEdit } from 'react-icons/md';
-import { api } from '../api.js';
+import { useData } from '../data.jsx';
 import {
   useTimerEventsForRange,
   createTimerEvent,
@@ -55,10 +55,7 @@ export default function Calendar() {
   );
   const events = useTimerEventsForRange({ from, to });
 
-  const [timers, setTimers] = useState([]);
-  useEffect(() => {
-    api.listTimers().then(setTimers).catch(() => {});
-  }, []);
+  const { timers } = useData();
   const timersById = useMemo(() => {
     const m = new Map();
     for (const t of timers) m.set(t.id, t);

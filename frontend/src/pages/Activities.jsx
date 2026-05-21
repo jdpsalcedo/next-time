@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { api, formatDuration } from '../api.js';
+import { useData } from '../data.jsx';
 import { smoothUpdate } from '../viewTransition.js';
 import { useToast } from '../toast.jsx';
 import TagChip from '../components/TagChip.jsx';
@@ -31,8 +32,7 @@ const SORT_OPTIONS = [
 
 export default function Activities() {
   const toast = useToast();
-  const [activities, setActivities] = useState([]);
-  const [tags, setTags] = useState([]);
+  const { activities, tags } = useData();
   const [editing, setEditing] = useState(null);
   const [tagModal, setTagModal] = useState(false);
   const [newTag, setNewTag] = useState({ name: '', color: '#38bdf8' });
@@ -81,14 +81,6 @@ export default function Activities() {
       return next;
     });
   }
-
-  async function refresh() {
-    const [a, g] = await Promise.all([api.listActivities(), api.listTags()]);
-    setActivities(a);
-    setTags(g);
-  }
-
-  useEffect(() => { refresh().catch((e) => setError(e.message)); }, []);
 
   const tagsInitializedRef = useRef(false);
   useEffect(() => {
@@ -196,7 +188,6 @@ export default function Activities() {
     if (wasCreate) await api.createActivity(payload);
     else await api.updateActivity(editing.id, payload);
     setEditing(null);
-    await refresh();
     toast.success(wasCreate ? `Created "${payload.title}"` : `Updated "${payload.title}"`);
   }
 
@@ -205,7 +196,6 @@ export default function Activities() {
     const removed = activities.find((a) => a.id === id);
     try {
       await api.deleteActivity(id);
-      await refresh();
       toast.success(removed ? `Deleted "${removed.title}"` : 'Activity deleted');
     } catch (e) {
       setError(e.message);
@@ -223,7 +213,6 @@ export default function Activities() {
       recordRecentTagColor(usedColor);
       setRecentColors(getRecentTagColors());
       setNewTag({ name: '', color: '#38bdf8' });
-      await refresh();
       toast.success(`Created tag "${name}"`);
     } catch (e) {
       setError(e.message);
@@ -236,7 +225,6 @@ export default function Activities() {
     const removed = tags.find((t) => t.id === id);
     try {
       await api.deleteTag(id);
-      await refresh();
       toast.success(removed ? `Deleted tag "${removed.name}"` : 'Tag deleted');
     } catch (e) {
       setError(e.message);

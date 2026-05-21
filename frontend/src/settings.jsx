@@ -8,6 +8,7 @@ const DEFAULTS = {
   reverse_countdown: true,
   dummy_data: false,
   accent_color: '#38bdf8',
+  split_warning_seconds: 5,
 };
 
 function readCache() {
