@@ -1,8 +1,11 @@
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useSettings } from '../settings.jsx';
 import { useAuth } from '../auth.jsx';
 import Modal from '../components/Modal.jsx';
 import ColorSwatchPicker from '../components/ColorSwatchPicker.jsx';
+
+const GITHUB_USER = 'jdpsalcedo';
+const GITHUB_REPO = 'next-time';
 
 const ACCENT_PRESETS = [
   '#38bdf8', '#22c55e', '#a855f7', '#f59e0b',
@@ -15,6 +18,16 @@ export default function Settings() {
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(null);
   const [accentPickerOpen, setAccentPickerOpen] = useState(false);
+  const [scrolled, setScrolled] = useState(false);
+
+  useEffect(() => {
+    function onScroll() {
+      setScrolled(window.scrollY > 120);
+    }
+    onScroll();
+    window.addEventListener('scroll', onScroll, { passive: true });
+    return () => window.removeEventListener('scroll', onScroll);
+  }, []);
 
   async function toggle(key) {
     setError('');
@@ -53,7 +66,7 @@ export default function Settings() {
   }
 
   return (
-    <div>
+    <div className="settings-page">
       <div className="section-header">
         <h1>Settings</h1>
       </div>
@@ -133,6 +146,34 @@ export default function Settings() {
           </div>
         </div>
       </div>
+
+      <aside
+        className={`settings-ownership-snippet${scrolled ? ' is-visible' : ''}`}
+        aria-hidden={!scrolled}
+      >
+        <pre className="settings-ownership-code">
+{`// next-time
+// © ${new Date().getFullYear()} ${GITHUB_USER}
+// github.com/${GITHUB_USER}/${GITHUB_REPO}
+{
+  "name": "next-time",
+  "author": {
+    "name": "${GITHUB_USER}",
+    "github": "https://github.com/${GITHUB_USER}",
+    "repo": "https://github.com/${GITHUB_USER}/${GITHUB_REPO}"
+  },
+  "license": "MIT"
+}`}
+        </pre>
+        <a
+          className="settings-ownership-link"
+          href={`https://github.com/${GITHUB_USER}`}
+          target="_blank"
+          rel="noopener noreferrer"
+        >
+          @{GITHUB_USER} on GitHub →
+        </a>
+      </aside>
 
       {accentPickerOpen && (
         <Modal title="Accent color" onClose={() => setAccentPickerOpen(false)}>
