@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useRef, useState } from 'react';
 import { useSettings } from '../settings.jsx';
 import { useAuth } from '../auth.jsx';
 import Modal from '../components/Modal.jsx';
@@ -18,16 +18,6 @@ export default function Settings() {
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(null);
   const [accentPickerOpen, setAccentPickerOpen] = useState(false);
-  const [scrolled, setScrolled] = useState(false);
-
-  useEffect(() => {
-    function onScroll() {
-      setScrolled(window.scrollY > 120);
-    }
-    onScroll();
-    window.addEventListener('scroll', onScroll, { passive: true });
-    return () => window.removeEventListener('scroll', onScroll);
-  }, []);
 
   async function toggle(key) {
     setError('');
@@ -66,7 +56,7 @@ export default function Settings() {
   }
 
   return (
-    <div className="settings-page">
+    <div>
       <div className="section-header">
         <h1>Settings</h1>
       </div>
@@ -145,35 +135,33 @@ export default function Settings() {
             </button>
           </div>
         </div>
+        <div className="card">
+          <div className="row">
+            <div className="row-main">
+              <div style={{ fontWeight: 600 }}>Built by {GITHUB_USER}</div>
+              <div className="muted" style={{ marginTop: 4 }}>
+                next-time is maintained by{' '}
+                <a
+                  href={`https://github.com/${GITHUB_USER}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                >
+                  @{GITHUB_USER}
+                </a>
+                . Source:{' '}
+                <a
+                  href={`https://github.com/${GITHUB_USER}/${GITHUB_REPO}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                >
+                  github.com/{GITHUB_USER}/{GITHUB_REPO}
+                </a>
+                .
+              </div>
+            </div>
+          </div>
+        </div>
       </div>
-
-      <aside
-        className={`settings-ownership-snippet${scrolled ? ' is-visible' : ''}`}
-        aria-hidden={!scrolled}
-      >
-        <pre className="settings-ownership-code">
-{`// next-time
-// © ${new Date().getFullYear()} ${GITHUB_USER}
-// github.com/${GITHUB_USER}/${GITHUB_REPO}
-{
-  "name": "next-time",
-  "author": {
-    "name": "${GITHUB_USER}",
-    "github": "https://github.com/${GITHUB_USER}",
-    "repo": "https://github.com/${GITHUB_USER}/${GITHUB_REPO}"
-  },
-  "license": "MIT"
-}`}
-        </pre>
-        <a
-          className="settings-ownership-link"
-          href={`https://github.com/${GITHUB_USER}`}
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          @{GITHUB_USER} on GitHub →
-        </a>
-      </aside>
 
       {accentPickerOpen && (
         <Modal title="Accent color" onClose={() => setAccentPickerOpen(false)}>
