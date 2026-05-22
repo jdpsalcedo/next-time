@@ -1,0 +1,46 @@
+rules_version = '2';
+
+// Firestore security rules for next-time.
+//
+// Deploy:
+//   - Console: paste this file at https://console.firebase.google.com/project/next-time-io/firestore/rules
+//   - CLI: `firebase deploy --only firestore:rules` (requires firebase.json + .firebaserc)
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    // Admin allowlist — must match the email list in src/admin.js.
+    // email_verified ensures the email was actually confirmed by the IdP
+    // (Google sign-in sets this to true). Without it, someone could spoof
+    // an admin email through a misconfigured provider.
+    function isAdmin() {
+      return isSignedIn()
+        && request.auth.token.email_verified == true
+        && request.auth.token.email in [
+          'jdpsalcedo@gmail.com'
+        ];
+    }
+
+    // Per-user data: only the owner can read or write their own documents.
+    // Covers tags, activities, timers, timerRuns, timerEvents, settings.
+    match /users/{userId}/{document=**} {
+      allow read, write: if isOwner(userId);
+    }
+
+    // Shared cosmetic catalog: any signed-in user may read so cosmetics
+    // populate the wardrobe and shop; only admins may write new entries
+    // via the workshop.
+    match /cosmetics/{docId} {
+      allow read: if isSignedIn();
+      allow write: if isAdmin();
+    }
+  }
+}

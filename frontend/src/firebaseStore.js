@@ -1,5 +1,6 @@
 import {
   addDoc,
+  arrayUnion,
   collection,
   deleteDoc,
   doc,
@@ -400,6 +401,10 @@ const SETTINGS_DEFAULTS = {
     coins: 0,
     accrued_seconds: 0,
     running_since_ms: null,
+    cosmetics: {
+      owned: [],
+      equipped: { skin: 'emerald', hat: null, face: null, back: null },
+    },
   },
 };
 
@@ -426,6 +431,158 @@ export async function updateSettings(patch) {
 }
 
 // ---- Seed data ----
+
+// ---- Cosmetic catalog (shared across all users) ----
+
+const COSMETIC_CATALOG_DOC = doc(db, 'cosmetics', 'main');
+const SLIME_DEFAULTS_DOC = doc(db, 'cosmetics', 'defaults');
+
+// Frames are arrays of row-strings. Firestore disallows arrays-of-arrays so
+// we wrap each frame as { rows: string[] } before writing and unwrap on read.
+function encodeFrames(frames) {
+  if (!frames) return frames;
+  return frames.map((rows) => ({ rows }));
+}
+function decodeFrames(encoded) {
+  if (!encoded) return encoded;
+  return encoded.map((obj) => obj?.rows || obj);
+}
+
+// Firestore disallows nested arrays, so cosmetic pixels are stored on disk
+// as { palette: { A: '#hex', ... }, rows: ['..AB..', ...] } and rehydrated
+// to the 2D color array consumers expect.
+const PALETTE_CHARS =
+  'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789#$%&*+=?@';
+
+function encodePixels(pixels) {
+  if (!pixels) return null;
+  const colorToChar = {};
+  const charToColor = {};
+  let nextIdx = 0;
+  for (const row of pixels) {
+    if (!row) continue;
+    for (const c of row) {
+      if (!c || colorToChar[c]) continue;
+      if (nextIdx >= PALETTE_CHARS.length) {
+        throw new Error(`Cosmetic uses more than ${PALETTE_CHARS.length} unique colors — reduce palette size before publishing.`);
+      }
+      const ch = PALETTE_CHARS[nextIdx++];
+      colorToChar[c] = ch;
+      charToColor[ch] = c;
+    }
+  }
+  const rows = pixels.map((row) =>
+    (row || []).map((c) => (c ? colorToChar[c] : '.')).join(''),
+  );
+  return { palette: charToColor, rows };
+}
+
+function decodePixels(encoded) {
+  if (!encoded?.rows) return null;
+  const palette = encoded.palette || {};
+  return encoded.rows.map((row) =>
+    row.split('').map((ch) => (ch === '.' ? null : palette[ch] || null)),
+  );
+}
+
+// Per-frame anchor `[[x,y], ...]` is also a nested array, so flatten it to
+// `[x0, y0, x1, y1, ...]` on write and reconstruct on read. Single anchors
+// `[x, y]` pass through unchanged.
+function encodeAnchor(anchor) {
+  if (!anchor) return anchor;
+  if (Array.isArray(anchor[0])) return anchor.flatMap(([x, y]) => [x, y]);
+  return anchor;
+}
+
+function decodeAnchor(anchor) {
+  if (!anchor || !Array.isArray(anchor)) return anchor;
+  if (anchor.length === 2 && typeof anchor[0] === 'number') return anchor;
+  if (Array.isArray(anchor[0])) return anchor; // already a nested array
+  // Flat per-frame, unflatten back to [[x,y], ...]
+  const out = [];
+  for (let i = 0; i < anchor.length; i += 2) out.push([anchor[i], anchor[i + 1]]);
+  return out;
+}
+
+function encodeEntry(entry) {
+  if (!entry) return entry;
+  const out = { ...entry };
+  if (entry.pixels) out.pixels = encodePixels(entry.pixels);
+  if (entry.anchor) out.anchor = encodeAnchor(entry.anchor);
+  if (entry.frames) out.frames = encodeFrames(entry.frames);
+  return out;
+}
+
+function decodeEntry(entry) {
+  if (!entry) return entry;
+  const out = { ...entry };
+  if (entry.pixels?.rows) out.pixels = decodePixels(entry.pixels);
+  if (entry.anchor) out.anchor = decodeAnchor(entry.anchor);
+  if (entry.frames) out.frames = decodeFrames(entry.frames);
+  return out;
+}
+
+export function subscribeCosmeticCatalog(callback) {
+  return onSnapshot(COSMETIC_CATALOG_DOC, (snap) => {
+    const items = snap.data()?.items || [];
+    callback(items.map(decodeEntry));
+  });
+}
+
+export async function addCosmeticEntry(entry) {
+  const encoded = encodeEntry(entry);
+  await setDoc(
+    COSMETIC_CATALOG_DOC,
+    {
+      items: arrayUnion(encoded),
+      updated_at: serverTimestamp(),
+    },
+    { merge: true },
+  );
+}
+
+// Read-modify-write since arrayRemove requires byte-identical object match.
+// Single-admin workshop, so the race window is irrelevant in practice.
+export async function deleteCosmeticEntry(id) {
+  const snap = await getDoc(COSMETIC_CATALOG_DOC);
+  const items = (snap.data()?.items || []).filter((c) => c.id !== id);
+  await setDoc(
+    COSMETIC_CATALOG_DOC,
+    { items, updated_at: serverTimestamp() },
+    { merge: true },
+  );
+}
+
+// ---- Slime defaults (global hop/sleep frames + default skin override) ----
+// Admin-edited animations and the "replace default emerald" overrides live
+// in this single doc. SlimeSprite reads it via the SlimeDefaultsProvider and
+// falls back to bundled FRAMES/SLEEPING_FRAMES/SLIME_SKINS.emerald when a
+// field is missing.
+
+export function subscribeSlimeDefaults(callback) {
+  return onSnapshot(SLIME_DEFAULTS_DOC, (snap) => {
+    const data = snap.data() || {};
+    callback({
+      hop_frames: decodeFrames(data.hop_frames),
+      sleep_frames: decodeFrames(data.sleep_frames),
+      emerald_skin: data.emerald_skin || null, // { palette, frames? }
+    });
+  });
+}
+
+export async function setSlimeDefaults(patch) {
+  const out = { updated_at: serverTimestamp() };
+  if (patch.hop_frames !== undefined) out.hop_frames = encodeFrames(patch.hop_frames);
+  if (patch.sleep_frames !== undefined) out.sleep_frames = encodeFrames(patch.sleep_frames);
+  if (patch.emerald_skin !== undefined) {
+    out.emerald_skin = patch.emerald_skin
+      ? { ...patch.emerald_skin, frames: encodeFrames(patch.emerald_skin.frames) }
+      : null;
+  }
+  await setDoc(SLIME_DEFAULTS_DOC, out, { merge: true });
+}
+
+// ---- Seeds (per-user demo data) ----
 
 const SEED_TAGS = [
   { name: 'sports', color: '#ef4444' },

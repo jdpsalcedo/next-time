@@ -20,6 +20,10 @@ const DEFAULTS = {
     coins: 0,
     accrued_seconds: 0,
     running_since_ms: null,
+    cosmetics: {
+      owned: [],
+      equipped: { skin: 'emerald', hat: null, face: null, back: null },
+    },
   },
 };
 

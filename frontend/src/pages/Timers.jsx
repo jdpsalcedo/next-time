@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { commitSlimeAccrual, isSlimeAttachedTo, SECONDS_PER_COIN } from '../slime.js';
+import { commitSlimeAccrual, isSlimeAttachedTo, SECONDS_PER_COIN, useResolvedEquipped } from '../slime.js';
 import { useSearchParams } from 'react-router-dom';
 import { api, formatDuration } from '../api.js';
 import { useData } from '../data.jsx';
@@ -109,6 +109,7 @@ export default function Timers() {
   const { settings, update: updateSettings } = useSettings();
   const reverse = !!settings.reverse_countdown;
   const slime = settings.slime || {};
+  const resolvedEquipped = useResolvedEquipped();
 
   const toast = useToast();
   const { timers, activities, tags } = useData();
@@ -712,6 +713,7 @@ export default function Timers() {
               reverse={reverse}
               expanded={expandedId === t.id}
               slime={slime}
+              slimeEquipped={resolvedEquipped}
               onAttachSlime={() => attachSlimeTo(t.id)}
               onDetachSlime={detachSlime}
               onToggleExpand={() =>
@@ -844,6 +846,7 @@ export default function Timers() {
           reverse={reverse}
           warningSeconds={Number(settings.split_warning_seconds) || 0}
           slime={slime}
+          slimeEquipped={resolvedEquipped}
           onAttachSlime={() => attachSlimeTo(focusedTimer.id)}
           onDetachSlime={detachSlime}
           onClose={() => setFocusedId(null)}
@@ -999,6 +1002,7 @@ function TimerCard({
   reverse,
   expanded,
   slime,
+  slimeEquipped,
   onAttachSlime,
   onDetachSlime,
   onToggleExpand,
@@ -1095,7 +1099,8 @@ function TimerCard({
       {slimeAttachedHere && (
         <div className="timer-card-slime" aria-hidden>
           <SlimeSprite
-            skin={slime.skin}
+            skin={slimeEquipped?.skin}
+            equipped={slimeEquipped}
             size={48}
             fps={8}
             state={run?.isPlaying ? 'hopping' : 'sleeping'}
@@ -1129,6 +1134,7 @@ function FocusedTimer({
   reverse,
   warningSeconds = 0,
   slime,
+  slimeEquipped,
   onAttachSlime,
   onDetachSlime,
   onClose,
@@ -1290,7 +1296,8 @@ function FocusedTimer({
         {slimeAttachedHere && (
           <div className="focused-timer-slime" aria-hidden>
             <SlimeSprite
-              skin={slime.skin}
+              skin={slimeEquipped?.skin}
+              equipped={slimeEquipped}
               size={64}
               fps={8}
               state={run?.isPlaying ? 'hopping' : 'sleeping'}

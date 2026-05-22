@@ -1,9 +1,11 @@
 import { useRef, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useSettings } from '../settings.jsx';
 import { useAuth } from '../auth.jsx';
 import Modal from '../components/Modal.jsx';
 import ColorSwatchPicker from '../components/ColorSwatchPicker.jsx';
 import { commitSlimeAccrual } from '../slime.js';
+import { isAdminUser } from '../admin.js';
 
 const GITHUB_USER = 'jdpsalcedo';
 const GITHUB_REPO = 'next-time';
@@ -16,9 +18,11 @@ const ACCENT_PRESETS = [
 export default function Settings() {
   const { settings, synced, update } = useSettings();
   const { user, signOut } = useAuth();
+  const navigate = useNavigate();
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(null);
   const [accentPickerOpen, setAccentPickerOpen] = useState(false);
+  const isAdmin = isAdminUser(user);
 
   async function toggle(key) {
     setError('');
@@ -152,6 +156,31 @@ export default function Settings() {
             />
           </div>
         </div>
+        {isAdmin && (
+          <div
+            className="card setting-card-clickable"
+            role="button"
+            tabIndex={0}
+            onClick={() => navigate('/admin/workshop')}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' || e.key === ' ') {
+                e.preventDefault();
+                navigate('/admin/workshop');
+              }
+            }}
+            aria-label="Open cosmetic workshop"
+          >
+            <div className="row">
+              <div className="row-main">
+                <div style={{ fontWeight: 600 }}>Cosmetic workshop</div>
+                <div className="muted" style={{ marginTop: 4 }}>
+                  Admin-only. Author hats, faces, backs, and skins, set anchors against the slime, and publish to the catalog.
+                </div>
+              </div>
+              <span className="muted" aria-hidden>→</span>
+            </div>
+          </div>
+        )}
         <div className="card">
           <div className="row">
             <div className="row-main">

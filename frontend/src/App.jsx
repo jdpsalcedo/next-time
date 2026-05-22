@@ -7,10 +7,12 @@ import Activities from './pages/Activities.jsx';
 import Timers from './pages/Timers.jsx';
 import Calendar from './pages/Calendar.jsx';
 import Settings from './pages/Settings.jsx';
+import Workshop from './pages/Workshop.jsx';
 import UniversalSearch from './components/UniversalSearch.jsx';
 import SlimeProfileModal, { SlimeProfileButton } from './components/SlimeProfile.jsx';
 import { useActiveTimers } from './timerRuns.js';
 import { SettingsProvider } from './settings.jsx';
+import { SlimeDefaultsProvider } from './slimeDefaults.jsx';
 import { ToastProvider } from './toast.jsx';
 import { useAuth } from './auth.jsx';
 import { UIProvider, useUI } from './ui.jsx';
@@ -37,11 +39,13 @@ export default function App() {
   return (
     <DataProvider>
       <SettingsProvider>
-        <ToastProvider>
-          <UIProvider>
-            <AppShell />
-          </UIProvider>
-        </ToastProvider>
+        <SlimeDefaultsProvider>
+          <ToastProvider>
+            <UIProvider>
+              <AppShell />
+            </UIProvider>
+          </ToastProvider>
+        </SlimeDefaultsProvider>
       </SettingsProvider>
     </DataProvider>
   );
@@ -106,6 +110,7 @@ function AppShell() {
             <Route path="/timers" element={<Timers />} />
             <Route path="/calendar" element={<Calendar />} />
             <Route path="/settings" element={<Settings />} />
+            <Route path="/admin/workshop" element={<Workshop />} />
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
         </div>
