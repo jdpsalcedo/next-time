@@ -553,6 +553,27 @@ export async function deleteCosmeticEntry(id) {
   );
 }
 
+// Replace an existing catalog entry by id. Same read-modify-write pattern as
+// delete — Firestore arrayUnion would create a duplicate, not overwrite.
+export async function updateCosmeticEntry(entry) {
+  if (!entry?.id) throw new Error('updateCosmeticEntry requires an id');
+  const snap = await getDoc(COSMETIC_CATALOG_DOC);
+  const existing = snap.data()?.items || [];
+  const encoded = encodeEntry(entry);
+  let replaced = false;
+  const items = existing.map((c) => {
+    if (c.id !== entry.id) return c;
+    replaced = true;
+    return encoded;
+  });
+  if (!replaced) items.push(encoded);
+  await setDoc(
+    COSMETIC_CATALOG_DOC,
+    { items, updated_at: serverTimestamp() },
+    { merge: true },
+  );
+}
+
 // ---- Slime defaults (global hop/sleep frames + default skin override) ----
 // Admin-edited animations and the "replace default emerald" overrides live
 // in this single doc. SlimeSprite reads it via the SlimeDefaultsProvider and

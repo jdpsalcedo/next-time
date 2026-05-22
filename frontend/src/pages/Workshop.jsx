@@ -3,7 +3,12 @@ import { Navigate, useNavigate } from 'react-router-dom';
 import { useAuth } from '../auth.jsx';
 import { isAdminUser } from '../admin.js';
 import { useToast } from '../toast.jsx';
-import { addCosmeticEntry, deleteCosmeticEntry, setSlimeDefaults } from '../firebaseStore.js';
+import {
+  addCosmeticEntry,
+  deleteCosmeticEntry,
+  setSlimeDefaults,
+  updateCosmeticEntry,
+} from '../firebaseStore.js';
 import {
   BODY_ANCHORS,
   COSMETIC_SLOTS,
@@ -178,6 +183,10 @@ export default function Workshop() {
   const [submitName, setSubmitName] = useState('');
   const [submitRarity, setSubmitRarity] = useState('common');
   const [submitting, setSubmitting] = useState(false);
+  // When set, the editor is loaded from this catalog entry and Submit will
+  // overwrite it (preserving id + original created_by/created_at) instead of
+  // appending a new entry.
+  const [editing, setEditing] = useState(null);
 
   const canvasRef = useRef(null);
   const gridRef = useRef(null);
@@ -313,11 +322,13 @@ export default function Workshop() {
     });
   }, [slot, skinPalette]);
 
-  // Reset name when slot changes
+  // Reset name when slot changes — but not while loading an item for edit,
+  // since loadForEdit sets both slot and name/rarity in the same batch.
   useEffect(() => {
+    if (editing) return;
     setSubmitName('');
     setSubmitRarity('common');
-  }, [slot]);
+  }, [slot, editing]);
 
   if (!isAdminUser(user)) {
     return <Navigate to="/settings" replace />;
@@ -481,6 +492,66 @@ export default function Workshop() {
     setSkinPalette({ ...SKIN_PRESETS.emerald });
   }
 
+  // Load a catalog entry into the editor so admin can tweak and overwrite it.
+  // Hydrates pixels + anchors for overlay slots, palette (+ optional custom
+  // frames) for skins, and pre-fills the submit form. Switches to Create view.
+  function loadForEdit(item) {
+    if (!item || item._builtIn) return;
+    setView('create');
+    setSlot(item.slot);
+    setSubmitName(item.name || '');
+    setSubmitRarity(item.rarity || 'common');
+    setReplaceDefault(false);
+    if (item.slot === 'skin') {
+      setSkinPalette({ ...SKIN_PRESETS.emerald, ...(item.palette || {}) });
+      if (item.frames) {
+        setSkinUseCustomFrames(true);
+        setSkinFramesDraft(item.frames);
+      } else {
+        setSkinUseCustomFrames(false);
+        setSkinFramesDraft(null);
+      }
+    } else {
+      const grid = emptyGrid();
+      if (Array.isArray(item.pixels)) {
+        for (let y = 0; y < GRID; y++) {
+          const row = item.pixels[y];
+          if (!row) continue;
+          for (let x = 0; x < GRID; x++) {
+            grid[y][x] = row[x] || null;
+          }
+        }
+      }
+      setPixelsBySlot((prev) => ({ ...prev, [item.slot]: grid }));
+
+      // Anchor may be a single [x,y] (mirrored across all frames) or a
+      // 6-element array of pairs (per-frame). Expand to 6 frames either way
+      // and turn per-frame mode on iff the original stored per-frame anchors.
+      const a = item.anchor;
+      const def = DEFAULT_COSMETIC_ANCHOR[item.slot];
+      let frames;
+      let perFrameNext = false;
+      if (Array.isArray(a) && Array.isArray(a[0])) {
+        frames = Array.from({ length: 6 }, (_, i) => {
+          const p = a[i] || a[0] || def;
+          return [p[0], p[1]];
+        });
+        perFrameNext = true;
+      } else if (Array.isArray(a) && a.length === 2 && typeof a[0] === 'number') {
+        frames = Array.from({ length: 6 }, () => [a[0], a[1]]);
+      } else {
+        frames = Array.from({ length: 6 }, () => [...def]);
+      }
+      setAnchorBySlot((prev) => ({ ...prev, [item.slot]: frames }));
+      setPerFrameBySlot((prev) => ({ ...prev, [item.slot]: perFrameNext }));
+    }
+    setEditing(item);
+  }
+
+  function cancelEdit() {
+    setEditing(null);
+  }
+
   // -- Submit --
   async function handleSubmit() {
     const name = submitName.trim();
@@ -488,6 +559,7 @@ export default function Workshop() {
       toast.error('Name is required');
       return;
     }
+    const isEditing = !!editing;
     let entry;
     if (slot === 'skin') {
       const palette = {
@@ -501,12 +573,12 @@ export default function Workshop() {
       };
       const customFrames = skinUseCustomFrames && skinFramesDraft ? skinFramesDraft : null;
       entry = {
-        id: `skin_${slugify(name)}_${Date.now().toString(36)}`,
+        id: isEditing ? editing.id : `skin_${slugify(name)}_${Date.now().toString(36)}`,
         slot: 'skin',
         name,
         rarity: submitRarity,
-        created_by: user.email,
-        created_at: Date.now(),
+        created_by: isEditing ? (editing.created_by ?? user.email) : user.email,
+        created_at: isEditing ? (editing.created_at ?? Date.now()) : Date.now(),
         palette,
         ...(customFrames ? { frames: customFrames } : {}),
       };
@@ -524,19 +596,23 @@ export default function Workshop() {
         ? [...anchorFrames[0]]
         : anchorFrames.map((p) => [...p]);
       entry = {
-        id: `${slot}_${slugify(name)}_${Date.now().toString(36)}`,
+        id: isEditing ? editing.id : `${slot}_${slugify(name)}_${Date.now().toString(36)}`,
         slot,
         name,
         rarity: submitRarity,
-        created_by: user.email,
-        created_at: Date.now(),
+        created_by: isEditing ? (editing.created_by ?? user.email) : user.email,
+        created_at: isEditing ? (editing.created_at ?? Date.now()) : Date.now(),
         anchor: anchorOut,
         pixels: pixels.map((row) => row.slice()),
       };
     }
     setSubmitting(true);
     try {
-      await addCosmeticEntry(entry);
+      if (isEditing) {
+        await updateCosmeticEntry(entry);
+      } else {
+        await addCosmeticEntry(entry);
+      }
       // If admin asked, also overwrite the global emerald default so every
       // user's "emerald" slime takes on this look.
       if (slot === 'skin' && replaceDefault) {
@@ -546,14 +622,26 @@ export default function Workshop() {
             frames: entry.frames || null,
           },
         });
-        toast.success(`Published "${name}" + replaced default emerald`);
+        toast.success(
+          isEditing
+            ? `Saved "${name}" + replaced default emerald`
+            : `Published "${name}" + replaced default emerald`,
+        );
       } else {
-        toast.success(`Published "${name}" to the cosmetic catalog`);
+        toast.success(
+          isEditing
+            ? `Saved changes to "${name}"`
+            : `Published "${name}" to the cosmetic catalog`,
+        );
       }
-      setSubmitName('');
+      if (isEditing) {
+        setEditing(null);
+      } else {
+        setSubmitName('');
+      }
       setReplaceDefault(false);
     } catch (err) {
-      toast.error(`Couldn't publish: ${err.message}`);
+      toast.error(`Couldn't ${isEditing ? 'save' : 'publish'}: ${err.message}`);
     } finally {
       setSubmitting(false);
     }
@@ -604,25 +692,44 @@ export default function Workshop() {
         </button>
       </div>
 
-      {view === 'wardrobe' && <WorkshopWardrobe />}
+      {view === 'wardrobe' && <WorkshopWardrobe onEdit={loadForEdit} />}
       {view === 'animations' && <WorkshopAnimations />}
 
       {view === 'create' && (
         <>
-      <div className="workshop-slot-picker">
-        {SLOTS.map((s) => (
+      {editing && (
+        <div className="workshop-editing-banner" role="status">
+          <div>
+            <b>Editing</b> "{editing.name}" — submitting will overwrite this {editing.slot}.
+          </div>
           <button
-            key={s.id}
             type="button"
-            className={`workshop-slot-btn ${slot === s.id ? 'active' : ''}`}
-            onClick={() => setSlot(s.id)}
-            data-slot={s.id}
-            aria-pressed={slot === s.id}
+            className="btn btn-ghost btn-sm"
+            onClick={cancelEdit}
           >
-            <span className="workshop-slot-icon" aria-hidden>{s.icon}</span>
-            <span>{s.label}</span>
+            Cancel edit
           </button>
-        ))}
+        </div>
+      )}
+      <div className="workshop-slot-picker">
+        {SLOTS.map((s) => {
+          const disabled = !!editing && slot !== s.id;
+          return (
+            <button
+              key={s.id}
+              type="button"
+              className={`workshop-slot-btn ${slot === s.id ? 'active' : ''}`}
+              onClick={() => setSlot(s.id)}
+              data-slot={s.id}
+              aria-pressed={slot === s.id}
+              disabled={disabled}
+              title={disabled ? 'Cancel edit to switch slot' : undefined}
+            >
+              <span className="workshop-slot-icon" aria-hidden>{s.icon}</span>
+              <span>{s.label}</span>
+            </button>
+          );
+        })}
       </div>
 
       {slot === 'skin' ? (
@@ -718,6 +825,7 @@ export default function Workshop() {
               onSubmit={handleSubmit}
               submitting={submitting}
               inline
+              editing={!!editing}
             />
             <label className="workshop-replace-default">
               <input
@@ -915,6 +1023,7 @@ export default function Workshop() {
               onSubmit={handleSubmit}
               submitting={submitting}
               inline
+              editing={!!editing}
             />
           </div>
         </div>
@@ -925,11 +1034,14 @@ export default function Workshop() {
   );
 }
 
-function SubmitCard({ slotLabel, name, setName, rarity, setRarity, onSubmit, submitting, inline = false }) {
+function SubmitCard({ slotLabel, name, setName, rarity, setRarity, onSubmit, submitting, inline = false, editing = false }) {
   const wrapperClass = inline ? 'workshop-submit-inline' : 'card workshop-submit-card';
+  const heading = editing ? `Save ${slotLabel.toLowerCase()}` : `Submit ${slotLabel.toLowerCase()}`;
+  const idleLabel = editing ? 'Save changes' : 'Submit';
+  const busyLabel = editing ? 'Saving…' : 'Submitting…';
   return (
     <div className={wrapperClass}>
-      <div style={{ fontWeight: 600, marginBottom: 10 }}>Submit {slotLabel.toLowerCase()}</div>
+      <div style={{ fontWeight: 600, marginBottom: 10 }}>{heading}</div>
       <label className="workshop-field">
         <span className="muted" style={{ fontSize: '0.85rem' }}>Name</span>
         <input
@@ -960,10 +1072,12 @@ function SubmitCard({ slotLabel, name, setName, rarity, setRarity, onSubmit, sub
         disabled={submitting || !name.trim()}
         style={{ width: '100%', marginTop: 8 }}
       >
-        {submitting ? 'Submitting…' : 'Submit'}
+        {submitting ? busyLabel : idleLabel}
       </button>
       <div className="muted" style={{ fontSize: '0.8rem', marginTop: 8, lineHeight: 1.4 }}>
-        Publishes directly to the shared cosmetic catalog. Live for all users immediately.
+        {editing
+          ? 'Overwrites the existing catalog entry. Changes are live for all users immediately.'
+          : 'Publishes directly to the shared cosmetic catalog. Live for all users immediately.'}
       </div>
     </div>
   );
@@ -1133,7 +1247,7 @@ function AnimationPreviewCanvas({ frames }) {
   return <canvas ref={canvasRef} className="workshop-canvas" style={{ width: 144, height: 144 }} />;
 }
 
-function WorkshopWardrobe() {
+function WorkshopWardrobe({ onEdit }) {
   const { items, loaded } = useCosmeticCatalog();
   const toast = useToast();
   const [filter, setFilter] = useState('all');
@@ -1256,16 +1370,29 @@ function WorkshopWardrobe() {
                 </div>
                 {isEquipped && <div className="slime-wardrobe-equipped-tag">preview</div>}
                 {!item._builtIn && (
-                  <button
-                    type="button"
-                    className="btn btn-ghost btn-sm workshop-wardrobe-delete"
-                    onClick={(e) => { e.stopPropagation(); handleDelete(item); }}
-                    disabled={busyId === item.id}
-                    aria-label={`Delete ${item.name}`}
-                    title="Delete"
-                  >
-                    {busyId === item.id ? '…' : '×'}
-                  </button>
+                  <>
+                    {onEdit && (
+                      <button
+                        type="button"
+                        className="btn btn-ghost btn-sm workshop-wardrobe-edit"
+                        onClick={(e) => { e.stopPropagation(); onEdit(item); }}
+                        aria-label={`Edit ${item.name}`}
+                        title="Edit"
+                      >
+                        ✎
+                      </button>
+                    )}
+                    <button
+                      type="button"
+                      className="btn btn-ghost btn-sm workshop-wardrobe-delete"
+                      onClick={(e) => { e.stopPropagation(); handleDelete(item); }}
+                      disabled={busyId === item.id}
+                      aria-label={`Delete ${item.name}`}
+                      title="Delete"
+                    >
+                      {busyId === item.id ? '…' : '×'}
+                    </button>
+                  </>
                 )}
               </button>
             );
