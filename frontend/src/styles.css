@@ -2111,6 +2111,41 @@ p { color: var(--muted); }
   border-color: var(--danger, #ef4444);
 }
 
+.workshop-wardrobe-edit {
+  position: absolute;
+  top: 4px;
+  right: 36px;
+  padding: 2px 8px;
+  font-size: 0.85rem;
+  line-height: 1;
+  background: transparent;
+  border: 1px solid var(--border, rgba(0,0,0,0.15));
+  border-radius: 4px;
+  color: var(--muted);
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.1s, color 0.1s, border-color 0.1s;
+}
+.slime-wardrobe-item:hover .workshop-wardrobe-edit { opacity: 1; }
+.workshop-wardrobe-edit:hover {
+  color: var(--accent);
+  border-color: var(--accent);
+}
+
+.workshop-editing-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 14px;
+  margin-bottom: 12px;
+  border-radius: var(--radius);
+  border: 1px solid var(--accent);
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  color: var(--text);
+  font-size: 0.9rem;
+}
+
 /* WORKSHOP */
 .workshop-slot-picker {
   display: grid;
