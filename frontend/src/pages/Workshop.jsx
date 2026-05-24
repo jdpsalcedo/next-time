@@ -22,8 +22,10 @@ import {
   SLIME_SKINS,
   W as SLIME_W,
   H as SLIME_H,
+  resolveSkinPalette,
 } from '../components/SlimeSprite.jsx';
 import { useSlimeDefaults } from '../slimeDefaults.jsx';
+import { useResolvedEquipped } from '../slime.js';
 import CosmeticThumb from '../components/CosmeticThumb.jsx';
 import FullSetPreview from '../components/FullSetPreview.jsx';
 import BlobEditor from '../components/BlobEditor.jsx';
@@ -103,11 +105,12 @@ function slugify(s) {
   return s.toLowerCase().trim().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '');
 }
 
-function drawSlimeFrame(ctx, frameIdx, pixelSize, paletteOverride, offsetX = 0, offsetY = 0) {
+function drawSlimeFrame(ctx, frameIdx, pixelSize, paletteOverride, offsetX = 0, offsetY = 0, framesOverride = null) {
   const palette = paletteOverride || SLIME_SKINS.emerald.palette;
-  const frame = SLIME_FRAMES[frameIdx];
+  const frames = framesOverride || SLIME_FRAMES;
+  const frame = frames[frameIdx] || frames[0];
   for (let y = 0; y < SLIME_H; y++) {
-    const row = frame[y];
+    const row = typeof frame[y] === 'string' ? frame[y] : (frame[y] || []).join('');
     for (let x = 0; x < SLIME_W; x++) {
       const ch = row[x];
       if (ch === '.' || ch === ' ' || ch === undefined) continue;
@@ -201,6 +204,21 @@ export default function Workshop() {
   const anchorFrames = overlaySlot ? anchorBySlot[overlaySlot] : null;
   // Anchor for the *currently previewed* frame — what the nudge pad edits.
   const anchor = anchorFrames ? anchorFrames[previewFrame] : null;
+
+  // Recolor + reshape preview body with what the user actually sees:
+  // skin palette from useResolvedEquipped(), hop frames from the admin-published
+  // default (so editors render against the live animation, not the bundled one).
+  const slimeDefaults = useSlimeDefaults();
+  const resolvedEquipped = useResolvedEquipped();
+  const userPalette = useMemo(
+    () => resolveSkinPalette(resolvedEquipped.skin, slimeDefaults),
+    [resolvedEquipped.skin, slimeDefaults],
+  );
+  const userFrames = slimeDefaults?.hop_frames || SLIME_FRAMES;
+  // Skin editor strip: per-skin custom > admin-published default > bundled —
+  // mirrors SlimeSprite's precedence so the live preview matches reality.
+  const skinPreviewFrames =
+    (skinUseCustomFrames && skinFramesDraft) || slimeDefaults?.hop_frames || SLIME_FRAMES;
   const offsetFromDefault = useMemo(() => {
     if (!overlaySlot) return [0, 0];
     const def = DEFAULT_COSMETIC_ANCHOR[overlaySlot];
@@ -257,7 +275,7 @@ export default function Workshop() {
 
     const frameAnchor = anchorFrames[previewFrame];
     if (slot === 'back') drawCosmetic(ctx, pixels, slot, frameAnchor, previewFrame, ANCHOR_PIXEL);
-    drawSlimeFrame(ctx, previewFrame, ANCHOR_PIXEL, SLIME_SKINS.emerald.palette);
+    drawSlimeFrame(ctx, previewFrame, ANCHOR_PIXEL, userPalette, 0, 0, userFrames);
     if (slot === 'hat' || slot === 'face') drawCosmetic(ctx, pixels, slot, frameAnchor, previewFrame, ANCHOR_PIXEL);
 
     const bodyAnchor = BODY_ANCHORS[slot]?.[previewFrame];
@@ -283,13 +301,13 @@ export default function Workshop() {
       ctx.stroke();
       ctx.setLineDash([]);
     }
-  }, [pixels, slot, anchorFrames, previewFrame, overlaySlot]);
+  }, [pixels, slot, anchorFrames, previewFrame, overlaySlot, userPalette, userFrames]);
 
   // Overlay preview strip
   useEffect(() => {
     if (!overlaySlot) return;
     const STRIP_PIXEL = 2;
-    SLIME_FRAMES.forEach((_, i) => {
+    userFrames.forEach((_, i) => {
       const c = stripRefs.current[i];
       if (!c) return;
       const ctx = c.getContext('2d');
@@ -297,16 +315,16 @@ export default function Workshop() {
       ctx.clearRect(0, 0, c.width, c.height);
       const frameAnchor = anchorFrames[i];
       if (slot === 'back') drawCosmetic(ctx, pixels, slot, frameAnchor, i, STRIP_PIXEL);
-      drawSlimeFrame(ctx, i, STRIP_PIXEL, SLIME_SKINS.emerald.palette);
+      drawSlimeFrame(ctx, i, STRIP_PIXEL, userPalette, 0, 0, userFrames);
       if (slot === 'hat' || slot === 'face') drawCosmetic(ctx, pixels, slot, frameAnchor, i, STRIP_PIXEL);
     });
-  }, [pixels, slot, anchorFrames, overlaySlot]);
+  }, [pixels, slot, anchorFrames, overlaySlot, userPalette, userFrames]);
 
   // Skin preview strip
   useEffect(() => {
     if (slot !== 'skin') return;
     const STRIP_PIXEL = 2;
-    SLIME_FRAMES.forEach((_, i) => {
+    skinPreviewFrames.forEach((_, i) => {
       const c = skinStripRefs.current[i];
       if (!c) return;
       const ctx = c.getContext('2d');
@@ -318,9 +336,9 @@ export default function Workshop() {
         ...skinPalette,
         M: skinPalette.M ?? skinPalette.E,
       };
-      drawSlimeFrame(ctx, i, STRIP_PIXEL, merged);
+      drawSlimeFrame(ctx, i, STRIP_PIXEL, merged, 0, 0, skinPreviewFrames);
     });
-  }, [slot, skinPalette]);
+  }, [slot, skinPalette, skinPreviewFrames]);
 
   // Reset name when slot changes — but not while loading an item for edit,
   // since loadForEdit sets both slot and name/rarity in the same batch.
@@ -774,7 +792,7 @@ export default function Workshop() {
             <div style={{ marginTop: 16 }}>
               <div style={{ fontWeight: 600, marginBottom: 8 }}>Live preview</div>
               <div className="workshop-preview-strip">
-                {SLIME_FRAMES.map((_, i) => (
+                {skinPreviewFrames.map((_, i) => (
                   <canvas
                     key={i}
                     ref={(el) => { skinStripRefs.current[i] = el; }}
@@ -960,7 +978,7 @@ export default function Workshop() {
             <div style={{ marginTop: 16 }}>
               <div style={{ fontWeight: 600, marginBottom: 8 }}>Live preview (hop cycle)</div>
               <div className="workshop-preview-strip">
-                {SLIME_FRAMES.map((_, i) => (
+                {userFrames.map((_, i) => (
                   <canvas
                     key={i}
                     ref={(el) => { stripRefs.current[i] = el; }}
@@ -1089,6 +1107,11 @@ const SLOT_LABEL = { hat: 'Hats', face: 'Faces', back: 'Backs', skin: 'Skins' };
 function WorkshopAnimations() {
   const toast = useToast();
   const defaults = useSlimeDefaults();
+  const resolvedEquipped = useResolvedEquipped();
+  const userPalette = useMemo(
+    () => resolveSkinPalette(resolvedEquipped.skin, defaults),
+    [resolvedEquipped.skin, defaults],
+  );
   const [target, setTarget] = useState('hop'); // 'hop' | 'sleep'
   const [hopDraft, setHopDraft] = useState(() => defaults.hop_frames || SLIME_FRAMES);
   const [sleepDraft, setSleepDraft] = useState(() => defaults.sleep_frames || SLIME_SLEEP_FRAMES);
@@ -1193,7 +1216,7 @@ function WorkshopAnimations() {
         <div style={{ marginTop: 18 }}>
           <div style={{ fontWeight: 600, marginBottom: 8 }}>Live preview</div>
           <div className="workshop-anim-preview">
-            <AnimationPreviewCanvas frames={draft} />
+            <AnimationPreviewCanvas frames={draft} palette={userPalette} />
           </div>
         </div>
       </div>
@@ -1201,10 +1224,10 @@ function WorkshopAnimations() {
   );
 }
 
-function AnimationPreviewCanvas({ frames }) {
+function AnimationPreviewCanvas({ frames, palette }) {
   const canvasRef = useRef(null);
   const frameRef = useRef(0);
-  const palette = SLIME_SKINS.emerald.palette;
+  const resolvedPalette = palette || SLIME_SKINS.emerald.palette;
   useEffect(() => { frameRef.current = 0; }, [frames]);
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -1226,7 +1249,7 @@ function AnimationPreviewCanvas({ frames }) {
         for (let x = 0; x < SLIME_W; x++) {
           const ch = row[x];
           if (!ch || ch === '.') continue;
-          ctx.fillStyle = palette[ch] || palette['!'];
+          ctx.fillStyle = resolvedPalette[ch] || resolvedPalette['!'];
           ctx.fillRect(x * pixelSize, y * pixelSize, pixelSize, pixelSize);
         }
       }
@@ -1243,7 +1266,7 @@ function AnimationPreviewCanvas({ frames }) {
     }
     rafId = requestAnimationFrame(loop);
     return () => cancelAnimationFrame(rafId);
-  }, [frames, palette]);
+  }, [frames, resolvedPalette]);
   return <canvas ref={canvasRef} className="workshop-canvas" style={{ width: 144, height: 144 }} />;
 }
 
