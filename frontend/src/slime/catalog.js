@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { subscribeCosmeticCatalog } from '../firebaseStore.js';
+import { SEED_COSMETICS } from './seedCosmetics.js';
 
 // Body-anchor positions per slot, per slime hop frame.
 // These are the (x,y) pixel inside the 32x32 slime where a cosmetic's anchor
@@ -42,9 +43,10 @@ export function getAnchorForSleepFrame(item) {
   return a;
 }
 
-// Bundled seed cosmetics — none right now. Add entries here only if you want a
-// cosmetic to ship without ever touching Firestore (e.g. day-one defaults).
-export const SEED_COSMETICS = [];
+// Bundled seed cosmetics — shipped with the app, available to every user
+// without a Firestore round-trip. Definitions live in ./seedCosmetics.js to
+// keep this file lean. Edit there to add/remove day-one items.
+export { SEED_COSMETICS };
 
 export const RARITIES = ['common', 'uncommon', 'rare', 'epic', 'legendary'];
 

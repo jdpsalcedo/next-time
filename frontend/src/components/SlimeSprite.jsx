@@ -347,7 +347,7 @@ function drawCosmeticOverlay(ctx, item, slot, pixelSize, frameIdx, bodyAnchorTab
   }
 }
 
-function resolveSkinPalette(skin, defaults) {
+export function resolveSkinPalette(skin, defaults) {
   // skin can be a built-in key, a full palette object, or null
   if (!skin) {
     return defaults?.emerald_skin?.palette || SLIME_SKINS.emerald.palette;
